@@ -1,0 +1,26 @@
+# Python virtual environment
+venv/
+
+# Python cache files
+__pycache__/
+*.pyc
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Environment variables and secrets
+.env
+
+# Operating system files
+.DS_Store
+
+# Large datasets
+data/raw/*
+data/processed/*
+
+# Keep dataset directories in Git
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Trained machine learning models
+models/*.pkl
