@@ -1,0 +1,8 @@
+Step,Rows before,Rows after,Rows removed
+Raw,10704,10704,0
+Remove duplicate records,10704,10704,0
+Standardize columns and remove constant columns,10704,10704,0
+Remove exact duplicates,10704,10704,0
+Group rare localities,10319,10319,0
+Prepare categorical variables for pipeline encoding,10319,10319,0
+Inspect numerical features and plan pipeline scaling,10319,10319,0
