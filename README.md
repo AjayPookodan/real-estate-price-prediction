@@ -3181,4 +3181,723 @@ Before marking the EDA stage as complete, verify the following:
 * [ ] The README has been checked against the final notebook output.
 
 **End of Module 3: Exploratory Data Analysis.**
+### MODULE 4: Location and Accessibility Analysis###
+
+## 1. Overview
+
+The Location and Accessibility Analysis module is a component of the **Real Estate Price Prediction** project. It investigates how the geographical location of a property and its proximity to important amenities may be associated with residential property prices in Gurugram (Gurgaon), Haryana, India.
+
+Property prices are influenced not only by the physical characteristics of a property, such as its area, number of bedrooms, and property type, but also by its surrounding environment. Accessibility to public transport, educational institutions, healthcare facilities, shopping centres, rail infrastructure, and major roads can influence the convenience and desirability of a residential location.
+
+This module enriches the property dataset with geographical features derived from OpenStreetMap (OSM). It then explores relationships between these features and property prices using statistical analysis and visualisation.
+
+The module is designed to support the project's broader objective of building a data-driven real-estate price prediction system.
+
+---
+
+## 2. Objectives
+
+The primary objectives of this module are:
+
+1. Identify relevant geographical amenities surrounding residential properties.
+2. Calculate the distance from each property to the nearest mapped amenity.
+3. Count selected amenities within specified radii around each property.
+4. Integrate the generated geographical features with the cleaned property dataset.
+5. Examine the statistical relationships between geographical accessibility and property prices.
+6. Investigate correlations between different accessibility features.
+7. Evaluate the quality and limitations of the geographical data.
+8. Generate reusable features that can be incorporated into subsequent modelling experiments.
+
+### Research questions
+
+This module investigates the following questions:
+
+* Are properties closer to railway infrastructure generally associated with different prices?
+* Is proximity to bus stops associated with property prices?
+* Does access to schools and hospitals vary across property locations?
+* Are properties surrounded by more amenities associated with higher prices?
+* Are the distances to different geographical features strongly correlated?
+* How much useful geographical information can be extracted from the available property coordinates and OSM data?
+
+These questions are exploratory. A statistical relationship does not, by itself, establish causation.
+
+---
+
+## 3. Study Area
+
+**Study area:** Gurugram (Gurgaon), Haryana, India.
+
+Gurugram is a major urban and commercial centre in the National Capital Region (NCR). Residential property values can vary substantially between localities because of differences in transport connectivity, infrastructure, commercial development, and access to public services.
+
+The analysis uses geographical coordinates associated with the properties in the cleaned dataset. Distances are calculated using a projected coordinate reference system suitable for the study area.
+
+### Coordinate reference system
+
+* Input coordinates: WGS 84 (`EPSG:4326`)
+* Projected coordinate system: WGS 84 / UTM zone 43N (`EPSG:32643`)
+* Distance unit during computation: metres
+* Distance unit in the output dataset: kilometres
+
+Projecting the coordinates before performing distance calculations avoids treating latitude and longitude as ordinary planar coordinates.
+
+---
+
+## 4. Data Sources
+
+### 4.1 Property dataset
+
+The property records are obtained from the cleaned dataset:
+
+`data/processed/clean_v2.csv`
+
+This dataset contains property identifiers, geographical coordinates, prices, and other property-related attributes.
+
+The principal fields used by this module are:
+
+| Field         | Description                              |
+| ------------- | ---------------------------------------- |
+| `prop_id`     | Unique property identifier               |
+| `latitude`    | Property latitude                        |
+| `longitude`   | Property longitude                       |
+| `price_lakhs` | Property price in lakhs of Indian rupees |
+| `area_sqft`   | Property area in square feet             |
+
+The location-feature generation script requires `prop_id`, `latitude`, and `longitude`. Other fields are used when the geographical features are combined with the property dataset for price analysis.
+
+The dataset used in the current workflow contains **7,457 property records**.
+
+### 4.2 OpenStreetMap
+
+The geographical amenity data are derived from OpenStreetMap (OSM), an open collaborative mapping project.
+
+The source workflow uses an India-wide OSM extract in PBF format, obtained from Geofabrik, and locally processes the relevant geographical features.
+
+The original extract is:
+
+`data/external/india-latest.osm.pbf`
+
+The large PBF file is an intermediate source used to extract the relevant features. The location-feature generation script described below reads the already-extracted GeoPackage files; it does not download or reprocess the PBF file automatically.
+
+### 4.3 Extracted amenity datasets
+
+The following GeoPackage files are expected in `data/external/`:
+
+| File            | Feature category           | Purpose                                                            |
+| --------------- | -------------------------- | ------------------------------------------------------------------ |
+| `railway.gpkg`  | Railway infrastructure     | Measure proximity to mapped railway features                       |
+| `bus.gpkg`      | Bus-related locations      | Estimate proximity to mapped bus locations                         |
+| `school.gpkg`   | Schools                    | Measure school accessibility and nearby school density             |
+| `hospital.gpkg` | Hospitals                  | Measure healthcare accessibility and nearby hospital density       |
+| `mall.gpkg`     | Shopping centres and malls | Estimate shopping accessibility and nearby shopping-centre density |
+| `highway.gpkg`  | Highway-related features   | Measure proximity to mapped highway geometries                     |
+| `mainroad.gpkg` | Main roads                 | Measure proximity to mapped main-road geometries                   |
+
+These are the expected filenames used by the script. The exact meaning of each category depends on the tags and filtering rules applied during extraction.
+
+**Important:** A missing GeoPackage is skipped by the current script. Therefore, the generated output must be checked to confirm which amenity categories were actually loaded.
+
+The presence of a category in OSM does not guarantee complete or uniform geographical coverage.
+
+---
+
+## 5. Methodology
+
+The workflow consists of data loading, coordinate transformation, distance calculation, amenity counting, validation, statistical analysis, and output generation.
+
+### Step 1: Load and validate property records
+
+The cleaned property dataset is loaded from:
+
+`data/processed/clean_v2.csv`
+
+The script verifies that the required columns are present and that property identifiers are unique.
+
+Latitude and longitude values are converted to numeric values and checked against their valid geographic ranges.
+
+The property records are then converted into point geometries using GeoPandas.
+
+### Step 2: Load amenity geometries
+
+The extracted GeoPackage files are loaded using GeoPandas.
+
+Each available amenity dataset is checked for a defined coordinate reference system. Invalid or empty geometries are excluded from the geographical calculations.
+
+The geometries are transformed into `EPSG:32643` so that distances can be calculated in metres.
+
+### Step 3: Calculate distance to the nearest amenity
+
+For each property, the shortest distance to the nearest mapped feature in each available amenity category is calculated.
+
+The nearest-feature calculation uses GeoPandas spatial operations.
+
+The resulting distances are converted from metres to kilometres.
+
+For example:
+
+* `dist_railway_km`: distance to the nearest mapped railway feature.
+* `dist_bus_km`: distance to the nearest mapped bus feature.
+* `dist_school_km`: distance to the nearest mapped school feature.
+* `dist_hospital_km`: distance to the nearest mapped hospital feature.
+* `dist_mall_km`: distance to the nearest mapped mall feature.
+* `dist_highway_km`: distance to the nearest mapped highway feature.
+* `dist_mainroad_km`: distance to the nearest mapped main-road feature.
+
+These values represent **straight-line geometric distances**, not road-network travel distances or actual journey times.
+
+For linear and polygon geometries, the nearest-distance calculation measures the shortest distance to the mapped geometry itself.
+
+### Step 4: Calculate amenity counts within specified radii
+
+Distance alone does not describe the complete surrounding environment. Two properties may have similar distances to their nearest school but differ considerably in the number of schools nearby.
+
+To capture this difference, the module calculates counts of selected amenities within two radii:
+
+* 1 kilometre
+* 2 kilometres
+
+The categories included in the current count features are schools, hospitals, bus locations, and malls.
+
+For non-point geometries used in these count calculations, centroids are used to represent their locations. Consequently, these counts are based on representative points rather than the full spatial extent of each geometry.
+
+The generated features include:
+
+| Feature          | Meaning                                        |
+| ---------------- | ---------------------------------------------- |
+| `n_school_1km`   | Number of mapped school features within 1 km   |
+| `n_school_2km`   | Number of mapped school features within 2 km   |
+| `n_hospital_1km` | Number of mapped hospital features within 1 km |
+| `n_hospital_2km` | Number of mapped hospital features within 2 km |
+| `n_bus_1km`      | Number of mapped bus features within 1 km      |
+| `n_bus_2km`      | Number of mapped bus features within 2 km      |
+| `n_mall_1km`     | Number of mapped mall features within 1 km     |
+| `n_mall_2km`     | Number of mapped mall features within 2 km     |
+
+These counts measure the density of mapped features within circular, straight-line search areas around each property.
+
+They should not be interpreted as counts of every real-world amenity in the area because OSM coverage may be incomplete.
+
+### Step 5: Construct the location-feature dataset
+
+The distance and count features are combined into a table indexed by `prop_id`.
+
+The resulting dataset is saved to:
+
+`data/processed/location_features.csv`
+
+The current generated dataset contains:
+
+* 7,457 property records
+* 16 columns, including the property identifier
+* 15 geographical features in the observed output
+
+The number of available features can vary if some GeoPackage files are missing or contain no usable geometries.
+
+### Step 6: Integrate location features with property data
+
+The location-feature dataset can be merged with the cleaned property dataset using `prop_id`.
+
+The property identifier acts as the key connecting each geographical feature to the corresponding property record.
+
+A one-to-one merge validation is recommended to prevent accidental duplication of property records.
+
+The combined dataset can then be used for exploratory analysis and subsequent model experiments.
+
+---
+
+## 6. Feature Engineering
+
+The module creates two principal types of geographical features.
+
+### 6.1 Nearest-distance features
+
+Distance features represent the proximity of each property to the nearest mapped amenity category.
+
+Examples include:
+
+* `dist_railway_km`
+* `dist_bus_km`
+* `dist_school_km`
+* `dist_hospital_km`
+* `dist_mall_km`
+* `dist_highway_km`
+* `dist_mainroad_km`
+
+A smaller value indicates that the property is geographically closer to the nearest mapped feature.
+
+However, a smaller distance does not necessarily imply better accessibility. For example, proximity to a major road may improve connectivity but could also be associated with traffic noise or congestion.
+
+### 6.2 Nearby-amenity count features
+
+Count features represent the number of mapped amenities within a specified radius.
+
+Examples include:
+
+* `n_school_1km`
+* `n_school_2km`
+* `n_hospital_1km`
+* `n_hospital_2km`
+* `n_bus_1km`
+* `n_bus_2km`
+* `n_mall_1km`
+* `n_mall_2km`
+
+Higher counts indicate a greater number of mapped features within the relevant radius, subject to the quality and completeness of the source data.
+
+Distance and count features provide complementary information. Distance describes proximity to the nearest feature, while counts approximate the density of features around a property.
+
+---
+
+## 7. Validation and Quality Checks
+
+Validation is performed to confirm that the generated feature dataset is structurally consistent and numerically valid.
+
+### 7.1 Record and identifier validation
+
+The generated dataset is checked for:
+
+* The expected number of property records.
+* Duplicate property identifiers.
+* Missing property identifiers.
+* Property identifiers that are absent from the cleaned dataset.
+* Preservation of property order when required by the workflow.
+
+The current dataset contains 7,457 rows, with no duplicate property identifiers.
+
+A comparison with `clean_v2.csv` confirmed that all 7,457 identifiers matched in the same order.
+
+### 7.2 Missing-value validation
+
+The generated `location_features.csv` file was checked for missing values.
+
+**Observed result:** 0 missing values across the generated feature table.
+
+This confirms that the current output contains no missing values. It does not independently establish that every source feature is correctly mapped or that all amenity categories are complete.
+
+### 7.3 Distance validation
+
+The distance features were checked for negative values.
+
+**Observed result:** 0 negative distances.
+
+Negative distances would be invalid for this application.
+
+The minimum distance to a school is zero for some records. Such values may occur when a property point overlaps a mapped school geometry or when property coordinates are approximate.
+
+Zero distances are therefore retained rather than automatically removed.
+
+### 7.4 Amenity-count validation
+
+The amenity-count features were checked for negative values.
+
+**Observed result:** 0 negative counts.
+
+The following relationship was also tested for every available count category:
+
+`count within 2 km >= count within 1 km`
+
+The current output reported zero violations for schools, hospitals, bus locations, and malls.
+
+This is an important consistency check because the 2 km search radius contains the entire 1 km search area.
+
+### 7.5 Coordinate-quality limitations
+
+The property dataset contains 7,457 records but only 1,137 unique latitude-longitude pairs.
+
+Multiple property listings share identical coordinates. Some of these groups contain many listings.
+
+This may occur because:
+
+* Multiple listings refer to the same building or complex.
+* The original source uses locality-level or approximate coordinates.
+* Coordinates are rounded or reused across records.
+* Several properties genuinely share the same mapped location.
+
+Consequently, the location features cannot always distinguish individual properties within the same coordinate group.
+
+Listings sharing coordinates will generally receive identical distance and amenity-count features when calculated from the same amenity geometries.
+
+This limitation should be considered when interpreting the results.
+
+---
+
+## 8. Exploratory Data Analysis
+
+After feature generation, the geographical features are combined with the property dataset for exploratory analysis.
+
+### 8.1 Price per square foot
+
+Price per square foot is calculated as:
+
+`price_per_sqft = price_lakhs * 100000 / area_sqft`
+
+This converts the property price from lakhs of rupees into rupees and divides it by the property area in square feet.
+
+Price per square foot provides a normalised measure of property value that can help compare properties of different sizes.
+
+It is used for exploratory analysis rather than as a feature when predicting the total price from the same target price.
+
+### 8.2 Log-transformed price
+
+A log-transformed price measure can be calculated as:
+
+`log_price = np.log1p(price_lakhs)`
+
+Real-estate prices are often right-skewed, with a relatively small number of expensive properties.
+
+A logarithmic transformation can reduce the influence of extreme values and make patterns easier to examine.
+
+### 8.3 Spearman correlation analysis
+
+Spearman's rank correlation coefficient is used to examine monotonic relationships between geographical features and price measures.
+
+The analysis can compare each location feature against:
+
+* `price_per_sqft`
+* `log_price`
+
+Spearman correlation is useful when relationships are not necessarily linear or when the variables have skewed distributions.
+
+The coefficient ranges from -1 to +1:
+
+| Correlation | Interpretation                        |
+| ----------- | ------------------------------------- |
+| Close to +1 | Strong positive monotonic association |
+| Close to -1 | Strong negative monotonic association |
+| Close to 0  | Little or no monotonic association    |
+
+A weak correlation is still a valid finding. It may indicate that geographical accessibility alone does not explain much variation in property prices.
+
+Correlation does not establish causation and does not account automatically for confounding factors such as locality, property type, area, age, or other characteristics.
+
+### 8.4 Distance-versus-price analysis
+
+Binned plots can be used to examine how median price per square foot changes with distance to an amenity.
+
+For example, properties can be grouped into distance intervals and the median price per square foot calculated for each interval.
+
+Median values are often more robust to extreme property prices than means.
+
+The resulting patterns may indicate whether proximity to an amenity is associated with higher or lower property values.
+
+### 8.5 Amenity-density analysis
+
+The counts of amenities within 1 km and 2 km can be compared with property prices.
+
+This helps investigate whether the number of mapped schools, hospitals, bus locations, or malls in the surrounding area is associated with property value.
+
+However, greater amenity density may also be associated with urban density, commercial development, and locality characteristics. The observed relationship should not automatically be attributed to amenity availability alone.
+
+### 8.6 Correlation between distance features
+
+A correlation matrix can be constructed using the nearest-distance features.
+
+This analysis helps identify features that move together.
+
+For example, distance to railway infrastructure may be correlated with distance to major roads because both reflect the spatial organisation of urban development.
+
+Strongly correlated features may contain overlapping information, although correlation alone does not prove that either feature is unnecessary.
+
+### 8.7 Highway and main-road distance inspection
+
+The current output has identical summary statistics for `dist_highway_km` and `dist_mainroad_km`.
+
+Both features have:
+
+* Mean distance: approximately 0.022 km.
+* Maximum distance: approximately 0.239 km.
+
+These results warrant further inspection.
+
+Possible explanations include overlapping road geometries, similar extraction rules, or a genuine spatial relationship between the two categories.
+
+The two columns should not be removed or treated as duplicates based on summary statistics alone. Compare their row-level values and correlation before deciding how to handle them.
+
+---
+
+## 9. Outputs and Generated Files
+
+The principal output is:
+
+`data/processed/location_features.csv`
+
+It contains the property identifier and generated geographical features.
+
+Other outputs produced by the exploratory analysis workflow may include:
+
+| Output                                           | Purpose                                                               |
+| ------------------------------------------------ | --------------------------------------------------------------------- |
+| `reports/location_price_correlations.csv`        | Statistical associations between location features and price measures |
+| `reports/distance_correlations.csv`              | Correlation matrix for nearest-distance features                      |
+| `reports/figures/07_distance_vs_price.png`       | Distance-versus-price visualisation                                   |
+| `reports/figures/08_amenity_counts_vs_price.png` | Amenity-count-versus-price visualisation                              |
+| `reports/figures/08_distance_correlations.png`   | Distance-feature correlation heatmap                                  |
+
+These are expected output paths from the notebook workflow. Their existence and final contents should be verified in the repository before they are referenced as completed deliverables.
+
+The generated features can also be merged into a modelling dataset for experiments comparing models with and without geographical information.
+
+---
+
+## 10. Project Structure
+
+The relevant project structure is:
+
+```text
+real-estate-price-prediction/
+│
+├── data/
+│   ├── processed/
+│   │   ├── clean_v2.csv
+│   │   └── location_features.csv
+│   │
+│   └── external/
+│       ├── india-latest.osm.pbf
+│       ├── railway.gpkg
+│       ├── bus.gpkg
+│       ├── school.gpkg
+│       ├── hospital.gpkg
+│       ├── mall.gpkg
+│       ├── highway.gpkg
+│       └── mainroad.gpkg
+│
+├── notebooks/
+│   └── 04_location_features.ipynb
+│
+├── src/
+│   └── location_features.py
+│
+└── reports/
+    ├── location_price_correlations.csv
+    ├── distance_correlations.csv
+    └── figures/
+        ├── 07_distance_vs_price.png
+        ├── 08_amenity_counts_vs_price.png
+        └── 08_distance_correlations.png
+```
+
+This structure illustrates the expected organisation. Some files may be absent if their corresponding extraction or analysis steps have not been run.
+
+The original OSM PBF file and extracted GeoPackages are source/intermediate data, not outputs generated by `location_features.py`.
+
+---
+
+## 11. Installation and Dependencies
+
+The module uses Python and common geospatial and data-analysis libraries.
+
+Principal dependencies include:
+
+* Python
+* pandas
+* NumPy
+* GeoPandas
+* SciPy
+* Shapely
+* Pyogrio or another supported GeoPandas file-reading engine
+* A spatial-index backend supported by GeoPandas, where required by the installed version
+
+Install the Python dependencies in the project's virtual environment.
+
+If the project has a `requirements.txt` file, use:
+
+```powershell
+pip install -r requirements.txt
+```
+
+Otherwise, install the required packages individually:
+
+```powershell
+pip install pandas numpy geopandas scipy shapely pyogrio
+```
+
+Geospatial dependencies may require additional system components depending on the Python environment and operating system.
+
+---
+
+## 12. Running the Location-Feature Generation Script
+
+The reusable feature-generation script is:
+
+`src/location_features.py`
+
+It reads the cleaned property dataset and the available GeoPackage files, calculates the geographical features, validates property identifiers, and saves the resulting CSV.
+
+### Step 1: Open the project directory
+
+```powershell
+cd D:\real-estate-price-prediction
+```
+
+### Step 2: Activate the virtual environment
+
+```powershell
+.\venv\Scripts\Activate.ps1
+```
+
+### Step 3: Run the script
+
+```powershell
+python src/location_features.py
+```
+
+### Step 4: Verify the output
+
+```powershell
+python -c "import pandas as pd; d=pd.read_csv('data/processed/location_features.csv'); print('Shape:',d.shape); print('Duplicate IDs:',d['prop_id'].duplicated().sum()); print(d.head())"
+```
+
+The script overwrites the existing `location_features.csv` file when it completes successfully.
+
+**Important:** The script uses the existing GeoPackage files. It does not automatically download OSM data, extract new amenities from the PBF file, or regenerate missing GeoPackages.
+
+If an amenity GeoPackage is missing, the script may skip that category and produce fewer features. Review the script's terminal output to confirm which categories were loaded.
+
+---
+
+## 13. Reproducibility
+
+The location-feature generation process is separated from exploratory analysis so that the geographical features can be regenerated without manually rerunning every notebook cell.
+
+Reproducibility depends on:
+
+1. Using the same cleaned property dataset.
+2. Using the same extracted OSM GeoPackages.
+3. Using consistent amenity extraction and filtering rules.
+4. Using compatible versions of the Python geospatial libraries.
+5. Applying the same coordinate reference system and distance definitions.
+6. Keeping the feature-generation script and notebook logic consistent.
+
+Changes to the underlying OSM extract, extraction rules, property coordinates, or amenity datasets may change the resulting feature values.
+
+For reproducible research, record the source-data date and the versions of the relevant packages where possible.
+
+---
+
+## 14. Limitations
+
+The results must be interpreted in the context of the following limitations.
+
+### 14.1 Incomplete OSM coverage
+
+OpenStreetMap is collaboratively maintained. Some schools, hospitals, bus locations, shopping centres, and roads may be missing, incorrectly tagged, or outdated.
+
+A low amenity count does not necessarily mean that an area lacks those amenities.
+
+### 14.2 Straight-line distance
+
+The calculated distances represent geometric proximity, not actual travel distance.
+
+A school that is 500 metres away in a straight line may require a longer journey because of roads, walls, crossings, railway lines, or restricted access.
+
+Network-based routing would be needed to estimate realistic travel distances or travel times.
+
+### 14.3 Approximate property coordinates
+
+Multiple listings share the same coordinates. If a listing uses a locality-level or approximate point, the calculated distance may not represent the property's precise physical location.
+
+This is especially important when interpreting zero distances and very small distances.
+
+### 14.4 Amenity representation
+
+Non-point geometries used for amenity counts are represented by their centroids. This is computationally efficient but may not reflect the entire geometry of a large polygon or a long feature.
+
+The count features therefore measure the number of represented amenity geometries within a radius, rather than necessarily the number of complete physical amenities intersecting that radius.
+
+### 14.5 Feature-category definitions
+
+The meaning of an OSM feature depends on the tags and filters used during extraction. The extracted railway, bus, highway, and main-road categories should be documented alongside their extraction rules.
+
+### 14.6 Correlation is not causation
+
+An association between distance and property price does not prove that proximity to an amenity causes a price difference.
+
+Locality, building quality, property size, age, and market conditions may influence both location and price.
+
+### 14.7 Spatial dependence
+
+Nearby properties are not necessarily independent observations. Properties in the same locality or building may share geographical characteristics.
+
+Random train-test splits may therefore overestimate predictive performance if geographically similar properties appear in both training and test sets.
+
+A spatially aware evaluation strategy may be more appropriate when assessing the generalisation of the final prediction model to new locations.
+
+---
+
+## 15. Integration with the Price Prediction Model
+
+The generated geographical features can be used to investigate whether location and accessibility improve the predictive performance of the real-estate model.
+
+A suitable experiment is to compare:
+
+**Baseline model**
+
+Uses property-related features such as area, bedrooms, bathrooms, property type, age, and locality information.
+
+**Location-enhanced model**
+
+Uses the same baseline features plus selected geographical distance and amenity-count features.
+
+Model performance can then be compared using appropriate regression metrics, such as:
+
+* Mean Absolute Error (MAE)
+* Root Mean Squared Error (RMSE)
+* R² score
+
+Use the same data split and evaluation procedure for both models so that the comparison is meaningful.
+
+To reduce spatial leakage, consider grouping properties by locality or using spatially separated training and test sets.
+
+### Avoiding target leakage
+
+The `price_per_sqft` measure is derived from the property price itself. If `price_lakhs` is the prediction target, `price_per_sqft` must not be included as an input feature because it directly incorporates the target.
+
+It can be used for exploratory analysis, but not as a predictor of the same total price.
+
+All preprocessing and feature selection decisions should also be made without using information from the held-out test set.
+
+---
+
+## 16. Future Improvements
+
+Potential extensions include:
+
+1. Calculate road-network travel distances instead of relying exclusively on straight-line distances.
+2. Estimate travel times to important amenities.
+3. Include metro stations and additional public-transport categories, where reliable data are available.
+4. Improve property-coordinate accuracy where more precise locations can be obtained.
+5. Record OSM extraction dates and document the exact tags used for each category.
+6. Compare centroid-based counts with geometry-aware spatial counts.
+7. Investigate highly correlated road-distance features.
+8. Add spatial visualisations showing property prices and amenity distributions.
+9. Compare baseline and location-enhanced prediction models.
+10. Evaluate models using spatially separated train-test splits.
+11. Explore distance bands or nonlinear transformations when the relationship between accessibility and price is not linear.
+12. Examine whether the importance of accessibility differs between localities or property types.
+
+---
+
+## 17. Conclusion
+
+The Location and Accessibility Analysis module extends the real-estate dataset with geographical information derived from OpenStreetMap.
+
+It calculates nearest-feature distances and nearby-amenity counts, validates the generated data, and provides a foundation for exploring relationships between accessibility and property prices.
+
+The current feature dataset contains 7,457 property records with no duplicate property identifiers, no missing values, no negative distances or counts, and no violations of the tested 1 km versus 2 km count relationships.
+
+However, the results remain subject to limitations arising from OSM coverage, approximate property coordinates, straight-line distance measurements, and shared geographical locations.
+
+The generated features provide an additional source of information for subsequent modelling experiments. Their practical value should ultimately be determined by comparing model performance with and without the geographical features using a consistent and leakage-aware evaluation strategy.
+
+---
+
+## 18. References
+
+1. **OpenStreetMap** — Collaborative geographical data: https://www.openstreetmap.org/
+2. **Geofabrik Downloads** — Regional OpenStreetMap extracts: https://download.geofabrik.de/
+3. **GeoPandas Documentation** — Geospatial data processing in Python: https://geopandas.org/
+4. **pandas Documentation** — Data manipulation and analysis: https://pandas.pydata.org/docs/
+5. **SciPy Documentation** — Spatial data structures, including `cKDTree`: https://docs.scipy.org/doc/scipy/
+6. **OpenStreetMap Copyright and License** — https://www.openstreetmap.org/copyright
+
+OpenStreetMap data are made available under the Open Database License (ODbL). Follow the applicable attribution and license requirements when distributing datasets, maps, or derived work.
 
