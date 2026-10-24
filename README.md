@@ -3181,7 +3181,7 @@ Before marking the EDA stage as complete, verify the following:
 * [ ] The README has been checked against the final notebook output.
 
 **End of Module 3: Exploratory Data Analysis.**
-### MODULE 4: Location and Accessibility Analysis###
+# MODULE 4: Location and Accessibility Analysis#
 
 ## 1. Overview
 
@@ -3888,16 +3888,1789 @@ However, the results remain subject to limitations arising from OSM coverage, ap
 
 The generated features provide an additional source of information for subsequent modelling experiments. Their practical value should ultimately be determined by comparing model performance with and without the geographical features using a consistent and leakage-aware evaluation strategy.
 
+
+
+# Module 5: Feature Engineering
+
+## Gurgaon Real Estate Price Prediction
+
 ---
 
-## 18. References
+## 1. Introduction
 
-1. **OpenStreetMap** — Collaborative geographical data: https://www.openstreetmap.org/
-2. **Geofabrik Downloads** — Regional OpenStreetMap extracts: https://download.geofabrik.de/
-3. **GeoPandas Documentation** — Geospatial data processing in Python: https://geopandas.org/
-4. **pandas Documentation** — Data manipulation and analysis: https://pandas.pydata.org/docs/
-5. **SciPy Documentation** — Spatial data structures, including `cKDTree`: https://docs.scipy.org/doc/scipy/
-6. **OpenStreetMap Copyright and License** — https://www.openstreetmap.org/copyright
+Feature engineering is one of the most important stages in a machine learning project. The quality and representation of input features can significantly affect a model's ability to learn patterns and make accurate predictions.
 
-OpenStreetMap data are made available under the Open Database License (ODbL). Follow the applicable attribution and license requirements when distributing datasets, maps, or derived work.
+In this project, Module 4 focuses on transforming the cleaned Gurgaon real estate dataset into a machine-learning-ready dataset, creating meaningful features, incorporating geographical accessibility information, selecting suitable feature groups, comparing machine learning algorithms, tuning the best-performing model, and preparing the final model for deployment.
+
+The primary objective of this module is to build a reliable real estate price prediction model that estimates property prices using property characteristics and geographical information.
+
+A secondary objective is to investigate whether geographical accessibility features, such as distances to railway stations, schools, hospitals, malls, bus stops, highways, and main roads, improve prediction accuracy.
+
+### Main objectives
+
+* Create meaningful features from existing property attributes.
+* Develop geographical accessibility features using OpenStreetMap-derived information.
+* Investigate relationships between features and property prices.
+* Identify the most useful features using feature importance analysis.
+* Compare different feature combinations through ablation experiments.
+* Compare machine learning algorithms.
+* Tune the Random Forest model.
+* Evaluate the selected model on an independent test set.
+* Analyse prediction errors.
+* Save the final model and its configuration for future deployment.
+* Develop reusable feature-engineering functions for the application.
+
+### Tools and technologies
+
+| Technology                 | Purpose                                                          |
+| -------------------------- | ---------------------------------------------------------------- |
+| Python                     | Data processing and model development                            |
+| Pandas                     | Data manipulation and feature creation                           |
+| NumPy                      | Numerical operations and logarithmic transformations             |
+| Scikit-learn               | Preprocessing, model training, feature selection, and evaluation |
+| Matplotlib                 | Data visualization                                               |
+| Seaborn                    | Statistical visualization                                        |
+| Jupyter Notebook           | Experimentation and documentation                                |
+| Joblib                     | Saving and loading the trained model                             |
+| JSON                       | Storing model metadata and configuration                         |
+| OpenStreetMap-derived data | Geographical accessibility analysis                              |
+| GeoPandas and OSMnx        | Geographical data processing                                     |
+| SciPy                      | Spatial calculations and statistical analysis                    |
+| Streamlit                  | Planned deployment interface                                     |
+
+---
+
+# 2. Dataset Preparation
+
+## 2.1 Input dataset
+
+The feature-engineering workflow uses the processed Gurgaon property dataset created during the earlier data-cleaning module.
+
+The principal input files are:
+
+```text
+data/
+├── processed/
+│   ├── clean_v2.csv
+│   ├── location_features.csv
+│   └── clean_v3_location.csv
+```
+
+### `clean_v2.csv`
+
+This file contains the cleaned property dataset after the earlier preprocessing steps.
+
+It includes information such as:
+
+* Property identifiers
+* Latitude and longitude
+* Property type
+* Ownership type
+* Number of bedrooms
+* Number of bathrooms
+* Number of balconies
+* Furnishing status
+* Facing direction
+* Property age
+* Floor information
+* Property area
+* Grouped locality
+* Property price
+
+The cleaned dataset contains **7,457 property records**.
+
+### `location_features.csv`
+
+This file contains geographical accessibility features calculated for the properties.
+
+It contains 16 columns, including the property identifier and 15 additional columns representing distances, counts, and other accessibility-related measurements.
+
+The file was checked for duplicate property identifiers and missing values. The final validation found:
+
+* 7,457 rows
+* No duplicate `prop_id` values
+* No missing values in the accessibility feature file
+
+### `clean_v3_location.csv`
+
+This file combines the cleaned property dataset with the corresponding geographical accessibility features.
+
+The property identifier, `prop_id`, was used to associate each property with its accessibility information.
+
+The resulting dataset maintains **7,457 property records**.
+
+---
+
+## 2.2 Data integrity validation
+
+Before engineering additional features, the dataset was checked to ensure that the property records and geographical features were correctly aligned.
+
+The validation process included:
+
+1. Checking the number of rows in the property and accessibility datasets.
+2. Checking for duplicate property identifiers.
+3. Checking for missing accessibility values.
+4. Verifying that every property had a corresponding accessibility record.
+5. Confirming that the merged dataset preserved the expected number of records.
+
+These checks help prevent incorrect joins, duplicate records, and missing geographical information from affecting model training.
+
+---
+
+# 3. Basic Feature Engineering
+
+## 3.1 Why basic feature engineering is necessary
+
+Raw property attributes do not always express the relationships that a machine learning model needs to learn.
+
+For example, the number of bedrooms and bathrooms can be considered separately, but their relationship may also provide useful information about a property.
+
+Feature engineering creates additional variables from existing attributes to represent these relationships more explicitly.
+
+In this project, the basic feature-engineering stage creates or supports the following features:
+
+| Feature            | Description                                                                     |
+| ------------------ | ------------------------------------------------------------------------------- |
+| `bed_bath_ratio`   | Represents the relationship between the number of bedrooms and bathrooms        |
+| `total_rooms`      | Represents a combined room-count measure derived from available room attributes |
+| `area_per_bedroom` | Represents the available area relative to the number of bedrooms                |
+| `floor_ratio`      | Represents a normalized floor-related measure derived from floor information    |
+
+These features provide alternative representations of the property's characteristics.
+
+The exact mathematical definitions, including how zero values and missing values are handled, should follow the implementation in `src/features.py` or the original feature-engineering notebook.
+
+### Example: Area per bedroom
+
+A general representation of this feature is:
+
+$$
+\text{Area Per Bedroom} =
+\frac{\text{Area in Square Feet}}{\text{Number of Bedrooms}}
+$$
+
+This can help distinguish properties with similar total areas but different bedroom configurations.
+
+The implementation must handle zero bedroom counts safely to prevent division-by-zero errors.
+
+### Example: Bedroom-bathroom relationship
+
+A bedroom-to-bathroom relationship can provide information about the property's layout.
+
+For example, two properties with the same area may differ in functionality if one has more bathrooms relative to its number of bedrooms.
+
+The engineered feature gives the model an additional way to represent this relationship.
+
+### Example: Floor ratio
+
+A floor-related ratio can represent the position of a property within a building.
+
+Its usefulness depends on the availability and interpretation of `floor_num` and `total_floor`.
+
+Care must be taken when these values are missing or invalid.
+
+## 3.2 Implementation
+
+The reusable function for creating basic features is:
+
+```python
+add_basic_features(d)
+```
+
+This function is included in:
+
+```text
+src/features.py
+```
+
+It accepts a DataFrame and creates the basic engineered features according to the project's implementation.
+
+The function was successfully imported and executed during validation.
+
+The existing dataset contained 45 columns before and after the test invocation. This is consistent with adding features that already exist in the input data, rather than evidence that the function failed.
+
+**Important:** Feature functions should be checked for repeatability. Running the same function twice should not unintentionally duplicate columns or change the meaning of existing features.
+
+---
+
+# 4. Geographical Accessibility Feature Engineering
+
+## 4.1 Motivation
+
+Property prices are influenced by more than the physical characteristics of a building.
+
+Two properties with similar areas, bedroom counts, and property types may have different prices because of differences in their locations.
+
+For example, a property located near a railway station, school, hospital, shopping mall, or major road may offer greater convenience than an otherwise similar property located far from these facilities.
+
+To investigate this relationship, the project incorporates geographical accessibility features derived from OpenStreetMap-related geographical data.
+
+This component is an important differentiator from a conventional real estate price prediction model that uses only property attributes.
+
+## 4.2 Distance-based features
+
+The following distance features were included in the accessibility dataset:
+
+| Feature            | Meaning                               |
+| ------------------ | ------------------------------------- |
+| `dist_railway_km`  | Distance to a railway-related feature |
+| `dist_bus_km`      | Distance to a bus-related feature     |
+| `dist_school_km`   | Distance to a school                  |
+| `dist_hospital_km` | Distance to a hospital                |
+| `dist_mall_km`     | Distance to a mall                    |
+| `dist_highway_km`  | Distance to a highway                 |
+| `dist_mainroad_km` | Distance to a main road               |
+
+These features express proximity in kilometres.
+
+Distance features allow the model to learn whether the proximity of particular facilities is associated with property prices.
+
+For example, the relationship between distance to a railway station and price may differ from the relationship between distance to a school and price.
+
+These relationships should be learned from the data rather than assumed in advance.
+
+### Distance interpretation
+
+Generally:
+
+* A smaller distance indicates greater proximity.
+* A larger distance indicates that the relevant feature is farther away.
+* A distance of zero may indicate that a property coordinate coincides with the mapped feature or that multiple records share a coordinate.
+
+Distance values must be interpreted in the context of the geographical data and the method used to calculate them.
+
+## 4.3 Amenity-count features
+
+Distance alone does not describe the entire accessibility of a location.
+
+For example, two properties may be equally close to their nearest school, but one may have several schools nearby while the other has only one.
+
+To capture this distinction, the project includes amenity-count features.
+
+| Feature          | Meaning                                    |
+| ---------------- | ------------------------------------------ |
+| `n_school_1km`   | Number of schools within 1 km              |
+| `n_school_2km`   | Number of schools within 2 km              |
+| `n_hospital_1km` | Number of hospitals within 1 km            |
+| `n_hospital_2km` | Number of hospitals within 2 km            |
+| `n_bus_1km`      | Number of bus-related features within 1 km |
+| `n_bus_2km`      | Number of bus-related features within 2 km |
+| `n_mall_1km`     | Number of malls within 1 km                |
+| `n_mall_2km`     | Number of malls within 2 km                |
+
+The count features represent the availability of nearby facilities.
+
+A higher count may indicate that a location has access to a greater number of relevant facilities. However, the effect on property prices depends on the actual data and the type of amenity.
+
+### Count validation
+
+The count features were checked to ensure that the 1 km counts did not exceed their corresponding 2 km counts.
+
+For example:
+
+$$
+n_{\text{school},1km}
+\leq
+n_{\text{school},2km}
+$$
+
+The same principle applies to the hospital, bus, and mall counts.
+
+This is a useful consistency check because every facility within 1 km should also be within 2 km when both counts use the same definitions and geographical dataset.
+
+## 4.4 Accessibility scores
+
+The project also incorporates accessibility scores:
+
+* `access_plain`
+* `access_weighted`
+
+These represent alternative ways of combining accessibility information.
+
+A plain accessibility score can provide a combined representation of the available distance-based information.
+
+A weighted score allows different accessibility components to contribute according to specified weights.
+
+The precise calculation depends on the project's fitted parameters, feature columns, and weight configuration.
+
+The implementation is handled by the following functions:
+
+```python
+fit_access_params(train, cols)
+
+access_components(d, params)
+
+add_access_features(d, params, weights)
+```
+
+The intended workflow is to estimate the required parameters from the training partition and apply the resulting transformation to the appropriate datasets.
+
+This separation is important because the parameters should not be fitted using held-out test data.
+
+## 4.5 Amenity density and total amenity counts
+
+Additional features represent the concentration of nearby facilities.
+
+| Feature               | Meaning                                                       |
+| --------------------- | ------------------------------------------------------------- |
+| `amenity_density_1km` | A measure of nearby amenity density within 1 km               |
+| `amenity_density_2km` | A measure of nearby amenity density within 2 km               |
+| `n_total_1km`         | Total count of the amenities included in the 1 km aggregation |
+| `n_total_2km`         | Total count of the amenities included in the 2 km aggregation |
+
+Amenity density helps describe how concentrated the relevant facilities are around a property.
+
+Total amenity counts provide an aggregate measure of nearby facilities.
+
+These features may contain overlapping information. For example, a total amenity count and an amenity density measure may be strongly related.
+
+Their usefulness therefore needs to be evaluated rather than assumed.
+
+## 4.6 Accessibility classes
+
+The project also includes an accessibility classification feature:
+
+```text
+access_class
+```
+
+This feature converts a continuous accessibility score into a categorical representation.
+
+The implementation uses fitted bin edges:
+
+```python
+fit_bin_edges(train, score)
+
+add_access_class(d, edges, score)
+```
+
+This makes it possible to represent accessibility using discrete classes rather than only continuous scores.
+
+The exact class boundaries are determined by the fitted bin edges. They should be preserved when the feature transformation is reused in the application.
+
+## 4.7 Accessibility density parameters
+
+The density-related functions are:
+
+```python
+fit_density_params(train, count_bases)
+
+add_density_features(d, params, count_bases)
+```
+
+These functions support fitting and applying the density transformation using the relevant count-based information.
+
+As with the accessibility scores, the fitted parameters should be derived from training data and reused consistently.
+
+## 4.8 Reusable accessibility feature functions
+
+The complete set of reusable feature-engineering functions is:
+
+| Function                                       | Purpose                                                  |
+| ---------------------------------------------- | -------------------------------------------------------- |
+| `add_basic_features(d)`                        | Creates basic property-derived features                  |
+| `fit_access_params(train, cols)`               | Fits parameters used by the accessibility transformation |
+| `access_components(d, params)`                 | Calculates accessibility components                      |
+| `add_access_features(d, params, weights)`      | Adds accessibility-related features                      |
+| `fit_density_params(train, count_bases)`       | Fits parameters for density-related features             |
+| `add_density_features(d, params, count_bases)` | Adds density-related features                            |
+| `fit_bin_edges(train, score)`                  | Determines accessibility classification boundaries       |
+| `add_access_class(d, edges, score)`            | Adds the categorical accessibility class                 |
+
+These functions are organized in:
+
+```text
+src/features.py
+```
+
+The module was successfully imported, and all eight functions were confirmed to be callable.
+
+This makes the feature-engineering code easier to reuse outside the notebook.
+
+---
+
+# 5. Preparing the Machine Learning Dataset
+
+## 5.1 Creating the modeling dataset
+
+After combining the cleaned property information with the engineered geographical features, the modeling dataset contains:
+
+* Original property attributes
+* Geographical coordinates
+* Basic engineered features
+* Accessibility distances
+* Amenity counts
+* Accessibility scores
+* Density-related features
+* Accessibility classes
+* Target price information
+
+The feature-engineering notebook produced a combined DataFrame with:
+
+$$
+\boxed{7,457 \text{ rows} \times 45 \text{ columns}}
+$$
+
+The target variable is:
+
+```text
+price_lakhs
+```
+
+This represents property price in lakhs.
+
+## 5.2 Logarithmic target transformation
+
+Property prices commonly have a right-skewed distribution: most properties may be priced within a lower range, while a smaller number of expensive properties have substantially higher prices.
+
+To reduce the effect of this skewness during model training, the project creates a logarithmic target:
+
+$$
+y_{\log} = \ln(1+y)
+$$
+
+where:
+
+* \(y\) is the original property price in lakhs.
+* \(y_{\log}\) is the transformed target.
+* \(\ln\) is the natural logarithm.
+
+The implementation is:
+
+```python
+import numpy as np
+
+full["log_price"] = np.log1p(full["price_lakhs"])
+```
+
+The transformation can make the target distribution more manageable for modeling.
+
+It also changes the scale on which errors are measured, so the final results must be interpreted carefully.
+
+### Converting predictions back to the original scale
+
+The model predicts `log_price`.
+
+To convert the prediction back into lakhs, use:
+
+$$
+\hat{y} = e^{\hat{y}_{\log}} - 1
+$$
+
+In Python:
+
+```python
+predicted_price_lakhs = np.expm1(predicted_log_price)
+```
+
+The resulting value can be converted into crores by dividing by 100:
+
+```python
+predicted_price_crores = predicted_price_lakhs / 100
+```
+
+This conversion is essential when presenting predictions to users.
+
+---
+
+# 6. Preventing Data Leakage
+
+Data leakage occurs when information that would not legitimately be available during model training is used to construct the inputs or fit the model.
+
+Preventing leakage is essential for obtaining a realistic estimate of model performance.
+
+## 6.1 Target-related columns
+
+The following columns are not used as model inputs:
+
+| Column           | Reason for exclusion                                                   |
+| ---------------- | ---------------------------------------------------------------------- |
+| `price_lakhs`    | Original target variable                                               |
+| `log_price`      | Logarithmically transformed target                                     |
+| `price_per_sqft` | Price-derived variable that can reveal information about the target    |
+| `prop_id`        | Identifier rather than a meaningful predictive property characteristic |
+
+The model should learn to predict price from property characteristics, not from information calculated using the price itself.
+
+## 6.2 Training and test partitions
+
+The dataset was divided into training and test partitions.
+
+| Partition    | Number of records | Percentage |
+| ------------ | ----------------: | ---------: |
+| Training set |             5,965 |        80% |
+| Test set     |             1,492 |        20% |
+| Total        |             7,457 |       100% |
+
+The split was created using a fixed random state so that the partition could be reproduced.
+
+The training set was used for:
+
+* Feature selection experiments
+* Feature importance analysis
+* Feature-group ablation
+* Algorithm comparison
+* Hyperparameter tuning
+* Final model fitting
+
+The test set was reserved for final evaluation.
+
+**Important:** The held-out test set must not be used to choose features or tune hyperparameters. Its purpose is to estimate how the selected model performs on data that was not used during model selection.
+
+## 6.3 Fitting preprocessing correctly
+
+Categorical encoding, imputation, scaling where applicable, and other learned preprocessing operations should be fitted using training data only.
+
+A scikit-learn `Pipeline` helps enforce this process by keeping preprocessing and model prediction together.
+
+This is particularly important when categorical features must be encoded before they can be used by the Random Forest model.
+
+---
+
+# 7. Feature Group Definition
+
+To evaluate the contribution of different feature groups, the project organizes input features into logical categories.
+
+## 7.1 Base numerical features
+
+The base numerical group contains seven features:
+
+```python
+BASE_NUM = [
+    "bedroom_num",
+    "bathroom_num",
+    "balcony_num",
+    "floor_num",
+    "total_floor",
+    "total_landmark_count",
+    "area_sqft",
+]
+```
+
+These represent fundamental property characteristics.
+
+## 7.2 Geographical coordinates
+
+The geographical group contains:
+
+```python
+GEO = [
+    "latitude",
+    "longitude",
+]
+```
+
+Coordinates provide the model with the approximate geographical position of each property.
+
+They may help the model learn spatial price patterns across Gurgaon.
+
+## 7.3 Base categorical features
+
+The base categorical group contains six features:
+
+```python
+BASE_CAT = [
+    "property_type",
+    "owntype",
+    "furnish",
+    "facing",
+    "age",
+    "locality_grouped",
+]
+```
+
+These represent property classifications, ownership information, furnishing status, facing direction, age category, and grouped locality.
+
+Although some of these variables may be stored as numbers, they represent categories rather than continuous numerical measurements.
+
+For example, an encoded furnishing category should not automatically be interpreted as being twice as much as another category simply because its code is twice as large.
+
+The preprocessing pipeline must therefore treat these variables as categorical features.
+
+## 7.4 Accessibility numerical features
+
+The accessibility numerical group contains 21 features:
+
+```python
+AMEN_NUM = [
+    "dist_railway_km",
+    "dist_bus_km",
+    "dist_school_km",
+    "dist_hospital_km",
+    "dist_mall_km",
+    "dist_highway_km",
+    "dist_mainroad_km",
+    "access_plain",
+    "access_weighted",
+    "n_school_1km",
+    "n_school_2km",
+    "n_hospital_1km",
+    "n_hospital_2km",
+    "n_bus_1km",
+    "n_bus_2km",
+    "n_mall_1km",
+    "n_mall_2km",
+    "amenity_density_1km",
+    "amenity_density_2km",
+    "n_total_1km",
+    "n_total_2km",
+]
+```
+
+These features represent distances, accessibility scores, counts, and amenity density.
+
+## 7.5 Accessibility categorical features
+
+The accessibility categorical group contains:
+
+```python
+AMEN_CAT = [
+    "access_class",
+]
+```
+
+This feature represents the categorical accessibility classification.
+
+## 7.6 Base feature group
+
+The base feature group combines the base numerical and categorical features:
+
+$$
+\text{BASE\_FEATURES}
+=
+\text{BASE\_NUM}
+\cup
+\text{BASE\_CAT}
+$$
+
+It contains:
+
+$$
+7+6=\boxed{13 \text{ features}}
+$$
+
+## 7.7 Core feature group
+
+The core feature group adds latitude and longitude to the base features:
+
+$$
+\text{BASE\_GEO\_FEATURES}
+=
+\text{BASE\_FEATURES}
+\cup
+\text{GEO}
+$$
+
+It contains:
+
+$$
+13+2=\boxed{15 \text{ features}}
+$$
+
+This became the selected feature set for the final model.
+
+## 7.8 Full feature group
+
+The full feature group combines the core features with all 22 accessibility features:
+
+$$
+\text{FULL\_FEATURES}
+=
+\text{BASE\_GEO\_FEATURES}
+\cup
+\text{AMEN\_NUM}
+\cup
+\text{AMEN\_CAT}
+$$
+
+It contains:
+
+$$
+15+21+1=\boxed{37 \text{ features}}
+$$
+
+The 37-feature group was used to investigate whether the accessibility information improved prediction performance.
+
+---
+
+# 8. Feature Correlation Analysis
+
+## 8.1 Purpose
+
+Correlation analysis helps identify relationships between numerical variables.
+
+Highly correlated features may contain overlapping information.
+
+For example, a total amenity count and a density measure may be strongly related because both describe the availability of nearby facilities.
+
+Correlation analysis can help:
+
+* Identify potentially redundant numerical features.
+* Understand relationships between features.
+* Investigate associations between numerical variables and the target.
+* Guide further feature-selection experiments.
+
+## 8.2 Correlation interpretation
+
+The Pearson correlation coefficient measures the strength and direction of a linear relationship between two variables.
+
+Its value ranges from -1 to +1.
+
+| Correlation | Interpretation                      |
+| ----------- | ----------------------------------- |
+| Close to +1 | Strong positive linear relationship |
+| Close to -1 | Strong negative linear relationship |
+| Close to 0  | Weak or absent linear relationship  |
+
+A correlation coefficient close to zero does not necessarily mean that two variables are unrelated. Their relationship may be nonlinear.
+
+Similarly, correlation does not establish causation.
+
+## 8.3 Correlation-based feature pruning
+
+The project investigated redundancy among numerical features.
+
+The analysis identified candidates such as:
+
+* `dist_mainroad_km`
+* `access_plain`
+* `n_total_1km`
+* `n_total_2km`
+
+These were considered in the correlation-pruning work.
+
+However, correlation alone is not sufficient to decide whether a feature should be removed. A feature that is correlated with another feature may still contribute useful information to a nonlinear model.
+
+The project therefore also evaluated feature combinations empirically.
+
+---
+
+# 9. Random Forest Feature Importance
+
+## 9.1 Purpose
+
+Feature importance analysis helps identify which input features are useful to a trained model.
+
+The project used Random Forest feature-importance analysis as part of the feature-selection process.
+
+A Random Forest consists of multiple decision trees trained on different samples and feature subsets.
+
+Each tree learns relationships between the inputs and target. Combining many trees can capture nonlinear relationships and interactions between property characteristics.
+
+## 9.2 Permutation feature importance
+
+The project performed permutation feature importance analysis.
+
+The general procedure is:
+
+1. Train a model using the training data.
+2. Measure its baseline predictive performance.
+3. Randomly shuffle one feature's values.
+4. Measure performance again.
+5. Calculate how much performance deteriorates.
+6. Repeat the procedure as appropriate to obtain a more stable estimate.
+
+If shuffling a feature causes a substantial reduction in model performance, the model may rely on that feature for prediction.
+
+Permutation importance is useful because it evaluates feature importance in terms of the model's actual predictive performance rather than only its internal tree statistics.
+
+## 9.3 Limitations
+
+Feature importance must be interpreted carefully.
+
+* Correlated features can share predictive information.
+* A feature may be useful in combination with another feature.
+* Importance depends on the model and evaluation dataset.
+* A low importance score does not prove that a variable is irrelevant in every possible model.
+* Feature importance does not establish a causal relationship with property prices.
+
+The analysis was therefore combined with feature-group ablation and model comparison.
+
+---
+
+# 10. Feature-Group Ablation Experiments
+
+## 10.1 Purpose
+
+Feature-group ablation measures the effect of adding or removing groups of features.
+
+Rather than evaluating features only individually, the project compared models trained with different combinations of property, geographical, and accessibility information.
+
+This helps answer the question:
+
+**Do geographical coordinates and accessibility features improve property price prediction beyond the basic property attributes?**
+
+## 10.2 Core feature set
+
+The core set contains 15 features:
+
+* Seven base numerical features
+* Six base categorical features
+* Two geographical coordinates
+
+It includes the fundamental property information and location coordinates without the additional accessibility measurements.
+
+## 10.3 Full accessibility feature set
+
+The full set contains 37 features.
+
+It includes all 15 core features plus 22 accessibility-related features.
+
+These additional features represent:
+
+* Distance to nearby facilities
+* Amenity counts
+* Accessibility scores
+* Amenity density
+* Total amenity counts
+* Accessibility classification
+
+## 10.4 Why ablation is important
+
+Adding more features does not automatically improve a machine learning model.
+
+Additional variables may introduce:
+
+* Redundant information
+* Noisy measurements
+* Unnecessary model complexity
+* Greater computational requirements
+* Overfitting risk
+
+Ablation experiments provide empirical evidence about whether the additional features are worthwhile.
+
+The comparison was conducted using the training and validation process rather than using the final held-out test set to select the winning feature group.
+
+The resulting selected feature set for the final model was the 15-feature core set.
+
+This does not mean that geographical accessibility is unimportant. It means that, under the tested modeling configuration, the additional accessibility features were not selected for the final production model.
+
+---
+
+# 11. Additional Feature Validation: `area_is_carpet`
+
+The project also investigated the binary feature:
+
+```text
+area_is_carpet
+```
+
+This variable indicates whether the reported property area is identified as carpet area.
+
+Its distribution in the cleaned dataset was:
+
+| Value   | Count |
+| ------- | ----: |
+| 0       | 5,555 |
+| 1       | 1,902 |
+| Missing |     0 |
+| Total   | 7,457 |
+
+The feature was added to candidate feature configurations and evaluated.
+
+The comparison did not show a measurable improvement in Random Forest performance.
+
+Consequently, `area_is_carpet` was excluded from the selected 15-feature final model.
+
+This decision illustrates an important feature-engineering principle: a feature should not be retained solely because it seems intuitively useful. Its contribution should be assessed using a suitable evaluation procedure.
+
+---
+
+# 12. Comparing Candidate Feature Sets
+
+The project defined candidate feature configurations to evaluate alternative representations of the data.
+
+The main configurations were:
+
+| Feature set                 | Number of features | Purpose                                   |
+| --------------------------- | -----------------: | ----------------------------------------- |
+| Base features               |                 13 | Evaluate fundamental property information |
+| Core features               |                 15 | Add latitude and longitude                |
+| Full accessibility features |                 37 | Evaluate all accessibility information    |
+
+The experiments were used to determine whether the additional feature groups improved prediction performance.
+
+The selected final feature configuration was:
+
+```python
+FINAL_CORE_FEATURES = BASE_GEO_FEATURES.copy()
+
+FINAL_FEATURES = FINAL_CORE_FEATURES.copy()
+```
+
+The final feature list contains:
+
+```python
+FINAL_FEATURES = [
+    "bedroom_num",
+    "bathroom_num",
+    "balcony_num",
+    "floor_num",
+    "total_floor",
+    "total_landmark_count",
+    "area_sqft",
+    "property_type",
+    "owntype",
+    "furnish",
+    "facing",
+    "age",
+    "locality_grouped",
+    "latitude",
+    "longitude",
+]
+```
+
+The selection preserves both property characteristics and geographical location.
+
+The full accessibility feature set remains useful for research, comparison, and potential future model improvements.
+
+---
+
+# 13. Comparing Machine Learning Algorithms
+
+## 13.1 Objective
+
+After selecting the core feature set, the project compared candidate machine learning algorithms.
+
+The objective was to determine which model provided a suitable balance of predictive accuracy, robustness, and deployment practicality.
+
+The target used for training was:
+
+```text
+log_price
+```
+
+The algorithm comparison was conducted using the established training and validation workflow.
+
+## 13.2 Algorithms considered
+
+The project planned and investigated conventional regression approaches, including:
+
+### Linear Regression
+
+Linear Regression models the target as a linear combination of input features.
+
+Advantages:
+
+* Simple to understand.
+* Fast to train.
+* Provides a useful baseline.
+* Can help identify broad relationships.
+
+Limitations:
+
+* Cannot naturally capture all nonlinear relationships.
+* May require additional feature transformations to represent complex interactions.
+
+### Decision Tree Regressor
+
+A Decision Tree learns a sequence of conditions that divide the input space into smaller regions.
+
+Advantages:
+
+* Can capture nonlinear relationships.
+* Supports feature interactions.
+* Does not require numerical features to be scaled for its splits.
+
+Limitations:
+
+* Can overfit the training data.
+* May be sensitive to changes in the training sample.
+
+### Random Forest Regressor
+
+Random Forest combines predictions from multiple decision trees.
+
+Advantages:
+
+* Captures nonlinear relationships.
+* Can model interactions between features.
+* Often performs well on structured tabular datasets.
+* Reduces some of the instability associated with a single decision tree.
+
+Limitations:
+
+* Can require more memory and computation than simpler models.
+* Is less directly interpretable than a linear model.
+* May produce larger errors on unusual or extreme properties.
+
+### Gradient Boosting Regressor
+
+Gradient Boosting builds a sequence of models in which later models attempt to improve on the errors of earlier ones.
+
+Advantages:
+
+* Can capture nonlinear patterns.
+* Can perform strongly on structured datasets.
+* Supports iterative improvement of model predictions.
+
+Limitations:
+
+* Performance depends on appropriate hyperparameters.
+* Requires careful validation to avoid overfitting.
+
+## 13.3 Evaluation metrics
+
+The models were evaluated using regression metrics.
+
+### R-squared
+
+$$
+R^2 =
+1 -
+\frac{\sum_{i=1}^{n}(y_i-\hat{y}_i)^2}
+{\sum_{i=1}^{n}(y_i-\bar{y})^2}
+$$
+
+R-squared measures how well the predictions account for variation in the target relative to predicting its mean.
+
+Higher values generally indicate better performance under the same evaluation conditions.
+
+R-squared can be negative if a model performs worse than the mean-prediction baseline.
+
+### Mean Absolute Error
+
+$$
+MAE =
+\frac{1}{n}
+\sum_{i=1}^{n}|y_i-\hat{y}_i|
+$$
+
+MAE measures the average absolute difference between actual and predicted values.
+
+It is relatively easy to interpret because it uses the same units as the target.
+
+### Root Mean Squared Error
+
+$$
+RMSE =
+\sqrt{
+\frac{1}{n}
+\sum_{i=1}^{n}(y_i-\hat{y}_i)^2
+}
+$$
+
+RMSE penalizes large errors more heavily than MAE because the errors are squared before averaging.
+
+This is useful for a real estate project because very large prediction errors may have substantial practical consequences.
+
+### Metric interpretation across target scales
+
+The model was trained on the logarithmically transformed target.
+
+Therefore, metrics calculated on `log_price` and metrics calculated on the original `price_lakhs` scale measure different quantities.
+
+They should be reported separately and should not be compared directly as if they used the same units.
+
+---
+
+# 14. Random Forest Hyperparameter Tuning
+
+## 14.1 Purpose
+
+After the algorithm comparison, the project tuned the Random Forest model.
+
+Hyperparameters determine aspects of the model's structure and training process.
+
+The objective was to identify a suitable configuration using the training and validation workflow.
+
+## 14.2 Selected hyperparameters
+
+The selected configuration was:
+
+```python
+BEST_RF_PARAMS = {
+    "n_estimators": 400,
+    "max_depth": None,
+    "min_samples_split": 2,
+    "min_samples_leaf": 1,
+    "max_features": 1.0,
+}
+```
+
+### Explanation of the parameters
+
+| Parameter           | Selected value | Explanation                                                  |
+| ------------------- | -------------- | ------------------------------------------------------------ |
+| `n_estimators`      | 400            | Number of trees in the forest                                |
+| `max_depth`         | `None`         | No explicit maximum tree depth                               |
+| `min_samples_split` | 2              | Minimum number of samples required to split an internal node |
+| `min_samples_leaf`  | 1              | Minimum number of samples required at a leaf                 |
+| `max_features`      | `1.0`          | Each split considers all input features                      |
+
+### Number of trees
+
+The model uses 400 decision trees.
+
+Increasing the number of trees can improve the stability of predictions, although it also increases training time, prediction time, and model size.
+
+### Maximum depth
+
+Setting `max_depth=None` allows trees to continue splitting until other stopping conditions are met.
+
+This provides flexibility but may increase the risk of overfitting when other constraints are insufficient.
+
+### Minimum samples for splitting
+
+The value `min_samples_split=2` allows a node to split when it contains at least two samples, subject to the remaining tree-building conditions.
+
+### Minimum samples per leaf
+
+The value `min_samples_leaf=1` allows a leaf to contain a single training sample.
+
+This makes the trees flexible enough to represent detailed patterns in the training data.
+
+### Features considered at each split
+
+The value `max_features=1.0` allows the split procedure to consider all available input features.
+
+This setting was part of the selected configuration.
+
+---
+
+# 15. Comparing the Tuned Core Model and Accessibility Model
+
+The project compared the selected core feature configuration with the larger accessibility configuration.
+
+The comparison investigated whether adding the accessibility features provided enough improvement to justify the additional complexity.
+
+The two configurations were:
+
+| Model configuration | Input features |
+| ------------------- | -------------- |
+| Core model          | 15             |
+| Accessibility model | 37             |
+
+The final production model uses the 15-feature core configuration.
+
+This decision keeps the deployed model's input requirements relatively simple.
+
+The accessibility features remain valuable components of the research because they allow the project to investigate how proximity to amenities relates to property prices.
+
+Future work could explore alternative accessibility definitions, improved geographical data, additional amenities, and different model architectures.
+
+---
+
+# 16. Final Model Training
+
+## 16.1 Final feature configuration
+
+The final model uses the 15 core features.
+
+These features are divided into two groups for preprocessing.
+
+### Numerical features
+
+```python
+FINAL_NUM_FEATURES = [
+    "bedroom_num",
+    "bathroom_num",
+    "balcony_num",
+    "floor_num",
+    "total_floor",
+    "total_landmark_count",
+    "area_sqft",
+    "latitude",
+    "longitude",
+]
+```
+
+There are nine numerical features.
+
+### Categorical features
+
+```python
+FINAL_CAT_FEATURES = [
+    "property_type",
+    "owntype",
+    "furnish",
+    "facing",
+    "age",
+    "locality_grouped",
+]
+```
+
+There are six categorical features.
+
+Therefore:
+
+$$
+9+6=\boxed{15 \text{ input features}}
+$$
+
+The numerical and categorical feature lists together match the final model's expected input columns.
+
+## 16.2 Preprocessing pipeline
+
+The final model is stored as a scikit-learn `Pipeline`.
+
+A pipeline combines the preprocessing operations with the trained estimator.
+
+This is important because the same transformations must be applied during both training and prediction.
+
+For example, if categorical variables are encoded during training, new property inputs must be encoded using the same fitted transformation.
+
+The application should not independently invent new category codes or use a different encoding procedure.
+
+## 16.3 Final training procedure
+
+The final model was fitted on all 5,965 records in the original training partition.
+
+The 1,492 held-out test records were reserved for final evaluation.
+
+This allows the final model to use the entire training partition after the model-selection process is complete while preserving an independent test set for reporting performance.
+
+---
+
+# 17. Final Model Evaluation
+
+## 17.1 Held-out test results
+
+The final Random Forest model was evaluated on the 1,492-record held-out test set.
+
+The observed metrics were:
+
+### Metrics on the logarithmic target scale
+
+| Metric    |   Result |
+| --------- | -------: |
+| R-squared | 0.912288 |
+| MAE       | 0.118397 |
+| RMSE      | 0.182717 |
+
+### Metrics on the original property-price scale
+
+| Metric    |        Result |
+| --------- | ------------: |
+| R-squared |      0.902345 |
+| MAE       |  ₹43.34 lakhs |
+| RMSE      | ₹100.15 lakhs |
+
+The original-scale metrics are particularly useful when explaining the model to users because they express errors in the same units as property prices.
+
+## 17.2 Interpretation of R-squared
+
+The original-scale R-squared value is approximately:
+
+$$
+R^2 = 0.9023
+$$
+
+This indicates that the model performs substantially better than a simple mean-prediction baseline on the held-out test data under the R-squared metric.
+
+It does not mean that every prediction is 90.23% accurate.
+
+R-squared is a measure of performance relative to variation in the target, not a percentage accuracy score for individual property predictions.
+
+## 17.3 Interpretation of MAE
+
+The original-scale MAE is approximately:
+
+$$
+MAE = ₹43.34 \text{ lakhs}
+$$
+
+This means that the average absolute difference between the predicted and actual property prices is approximately ₹43.34 lakhs across the test records.
+
+It does not mean that every prediction is wrong by this amount. Individual errors may be much smaller or much larger.
+
+## 17.4 Interpretation of RMSE
+
+The original-scale RMSE is approximately:
+
+$$
+RMSE = ₹100.15 \text{ lakhs}
+$$
+
+RMSE is larger than MAE because it gives more weight to large errors.
+
+The difference between the two metrics suggests that some predictions have substantially larger errors than the typical absolute error.
+
+This is particularly relevant in real estate, where properties vary greatly in price and a small number of expensive properties can produce large absolute errors.
+
+---
+
+# 18. Prediction Error Analysis
+
+## 18.1 Purpose
+
+After evaluating the model, the project investigated its prediction errors.
+
+Error analysis is important because aggregate metrics alone do not explain where a model performs well or poorly.
+
+For example, a model may perform well for moderately priced properties but produce large errors for luxury properties.
+
+Understanding these patterns helps identify areas for future improvement.
+
+## 18.2 Actual versus predicted prices
+
+The error-analysis results were:
+
+| Measure                |          Result |
+| ---------------------- | --------------: |
+| Mean actual price      |   ₹350.70 lakhs |
+| Mean predicted price   |   ₹344.85 lakhs |
+| Mean signed error      |    -₹5.85 lakhs |
+| Median absolute error  |    ₹20.31 lakhs |
+| Maximum absolute error | ₹1,880.23 lakhs |
+
+The mean signed error was calculated using the convention:
+
+$$
+\text{Signed Error}
+=
+\text{Predicted Price}
+-
+\text{Actual Price}
+$$
+
+Under this convention, a negative value indicates underprediction.
+
+The mean signed error of approximately -₹5.85 lakhs indicates that the model's average prediction was slightly below the average actual price.
+
+However, a small average signed error does not guarantee that individual predictions are close to their actual values. Overpredictions and underpredictions can offset one another.
+
+## 18.3 Median absolute error
+
+The median absolute error was approximately ₹20.31 lakhs.
+
+This means that half of the absolute prediction errors were no greater than approximately ₹20.31 lakhs, while the other half were at least this large.
+
+The median is less sensitive to extreme errors than the mean.
+
+This explains why the median absolute error can be substantially lower than the mean absolute error.
+
+## 18.4 Large errors for expensive properties
+
+The analysis found that prediction errors tended to increase for higher-priced properties, particularly for properties above ₹10 crore.
+
+This is an important observation.
+
+Expensive properties may have unusual characteristics, unique locations, luxury amenities, or other factors that are not fully represented in the available dataset.
+
+Because the model is trained on historical examples, it may have difficulty predicting unusual properties when similar examples are limited.
+
+Large errors should be investigated, but they should not automatically be treated as evidence that the corresponding records are invalid.
+
+Removing expensive properties merely because the model predicts them poorly could introduce selection bias and reduce the model's usefulness for high-value properties.
+
+## 18.5 Future improvements suggested by error analysis
+
+Potential improvements include:
+
+* Collecting more examples of high-value properties.
+* Investigating whether the most expensive listings contain unusual data patterns.
+* Evaluating prediction errors across price ranges.
+* Exploring additional location and property-quality features.
+* Comparing alternative model families.
+* Reporting uncertainty alongside point predictions.
+* Testing whether separate models are useful for different price segments.
+
+These are potential future improvements rather than completed steps.
+
+---
+
+# 19. Saving the Final Model
+
+## 19.1 Model file
+
+The trained model was saved to:
+
+```text
+models/final_price_model.joblib
+```
+
+The file contains the fitted scikit-learn pipeline, including its trained preprocessing components and Random Forest estimator.
+
+The file size was approximately 193.8 MB.
+
+The large file size reflects the stored model and its associated fitted objects.
+
+## 19.2 Model metadata
+
+The accompanying metadata file is:
+
+```text
+models/final_model_metadata.json
+```
+
+This file is intended to preserve information about the model and its configuration.
+
+Keeping metadata separate from the serialized model makes it easier to document the model's feature schema, target, and evaluation results.
+
+## 19.3 Reloading the model
+
+The model was loaded successfully using Joblib:
+
+```python
+import joblib
+
+model = joblib.load(
+    r"D:\real-estate-price-prediction\models\final_price_model.joblib"
+)
+```
+
+The loaded object was confirmed to be a scikit-learn `Pipeline`.
+
+The model's expected feature count was verified:
+
+```text
+Expected feature count: 15
+```
+
+The expected input features were:
+
+```python
+[
+    "bedroom_num",
+    "bathroom_num",
+    "balcony_num",
+    "floor_num",
+    "total_floor",
+    "total_landmark_count",
+    "area_sqft",
+    "property_type",
+    "owntype",
+    "furnish",
+    "facing",
+    "age",
+    "locality_grouped",
+    "latitude",
+    "longitude",
+]
+```
+
+## 19.4 Prediction consistency verification
+
+The reloaded model was compared against the original model's predictions.
+
+The maximum observed prediction difference was approximately:
+
+$$
+5.33 \times 10^{-15}
+$$
+
+The predictions also passed the numerical equivalence check.
+
+This confirms that the saved model reproduces the original model's predictions to floating-point precision for the tested inputs.
+
+This verification is important because a model that saves and reloads correctly is easier to deploy reliably.
+
+---
+
+# 20. Preparing the Modeling Dataset for Reuse
+
+The feature-engineering workflow also prepares a modeling dataset containing the final selected features and target information.
+
+The intended output is:
+
+```text
+data/processed/model_data.csv
+```
+
+The file contains:
+
+* `prop_id`
+* The 15 final model features
+* `price_lakhs`
+* `log_price`
+* `split`
+
+The `split` column identifies whether a record belongs to the training or test partition.
+
+Expected dimensions:
+
+$$
+\boxed{7,457 \text{ rows} \times 19 \text{ columns}}
+$$
+
+The expected partition counts are:
+
+| Split | Records |
+| ----- | ------: |
+| Train |   5,965 |
+| Test  |   1,492 |
+| Total |   7,457 |
+
+This dataset is useful for reproducing experiments and inspecting the final model inputs.
+
+**Important:** Although the modeling dataset contains target columns for evaluation and analysis, `price_lakhs` and `log_price` must never be included in the prediction input features.
+
+The `split` column is also metadata, not a model input.
+
+The existence of the output file should be verified separately when documenting the final project files.
+
+---
+
+# 21. Reusable Feature-Engineering Module
+
+## 21.1 Why a separate Python module is useful
+
+Initially, feature-engineering functions are often developed and tested in a notebook.
+
+However, notebooks are primarily intended for experimentation and analysis.
+
+A deployed application should be able to reuse the required functions without depending on the notebook's execution history.
+
+For this reason, the project organizes the feature-engineering functions into:
+
+```text
+src/features.py
+```
+
+This allows the functions to be imported into other Python files.
+
+## 21.2 Available functions
+
+The module contains eight functions:
+
+```python
+from src.features import (
+    add_basic_features,
+    fit_access_params,
+    access_components,
+    add_access_features,
+    fit_density_params,
+    add_density_features,
+    fit_bin_edges,
+    add_access_class,
+)
+```
+
+All eight functions were successfully imported during validation.
+
+The module path was confirmed as:
+
+```text
+D:\real-estate-price-prediction\src\features.py
+```
+
+## 21.3 Import-path handling
+
+During development, the notebook initially returned:
+
+```text
+ModuleNotFoundError: No module named 'src'
+```
+
+This occurred because Python could not locate the project package from the notebook's current import path.
+
+The problem was resolved by adding the project directory to `sys.path`:
+
+```python
+import sys
+from pathlib import Path
+
+PROJECT_DIR = Path(r"D:\real-estate-price-prediction")
+
+if str(PROJECT_DIR) not in sys.path:
+    sys.path.insert(0, str(PROJECT_DIR))
+```
+
+The imports then succeeded.
+
+This is a development-environment issue rather than evidence of a problem with the feature-engineering functions themselves.
+
+For the deployed application, imports should be configured relative to the project structure and execution environment.
+
+---
+
+# 22. Important Distinction: Research Features Versus Deployment Features
+
+One of the main outcomes of this module is the distinction between the full research dataset and the selected model's actual inputs.
+
+The research dataset contains 45 columns, including:
+
+* Original property attributes
+* Target variables
+* Basic engineered features
+* Accessibility distances
+* Amenity counts
+* Accessibility scores
+* Density features
+* Accessibility classes
+
+The full candidate feature set contains 37 input features.
+
+However, the selected final model uses only 15 input features.
+
+This distinction is important for the deployment interface.
+
+The final model does not require the application to calculate all 37 candidate features before making a prediction.
+
+Instead, the application must provide the following 15 features:
+
+1. Bedroom count
+2. Bathroom count
+3. Balcony count
+4. Floor number
+5. Total floors
+6. Total landmark count
+7. Area in square feet
+8. Property type
+9. Ownership type
+10. Furnishing status
+11. Facing direction
+12. Property age category
+13. Grouped locality
+14. Latitude
+15. Longitude
+
+The deployed model's preprocessing pipeline should then handle the input transformations it was trained to perform.
+
+This reduces the complexity of the prediction interface and avoids calculating unnecessary accessibility features for the selected model.
+
+---
+
+# 23. Final Project Directory Structure
+
+The relevant project structure is organized as follows:
+
+```text
+real-estate-price-prediction/
+│
+├── data/
+│   ├── raw/
+│   ├── external/
+│   └── processed/
+│       ├── clean_v2.csv
+│       ├── location_features.csv
+│       ├── clean_v3_location.csv
+│       └── model_data.csv
+│
+├── notebooks/
+│   ├── 03_eda.ipynb
+│   ├── 04_location_features.ipynb
+│   └── 05_feature_engineering.ipynb
+│
+├── src/
+│   └── features.py
+│
+├── models/
+│   ├── final_price_model.joblib
+│   └── final_model_metadata.json
+│
+├── app/
+│   └── streamlit_app.py
+│
+├── reports/
+│   └── ...
+│
+└── README.md
+```
+
+The listed notebook and model filenames reflect the project's current workflow. Files such as `model_data.csv`, `streamlit_app.py`, or other report outputs should be included in the final repository only after their creation and validation have been confirmed.
+
+---
+
+# 24. Challenges and Lessons Learned
+
+## 24.1 More features do not always mean better predictions
+
+One of the main lessons from the project is that adding features does not guarantee better model performance.
+
+The accessibility feature set increased the number of candidate inputs from 15 to 37.
+
+However, the final model selected the smaller core feature set.
+
+This demonstrates why feature engineering should be combined with empirical evaluation.
+
+## 24.2 Feature meaning matters
+
+Some variables are numerical representations of categories.
+
+Treating category codes as continuous numerical measurements can introduce misleading relationships.
+
+The project therefore separates numerical and categorical features before preprocessing.
+
+## 24.3 Geographical data requires validation
+
+Geographical features depend on the quality and completeness of the underlying map data.
+
+Distances and amenity counts should be checked for:
+
+* Missing values
+* Negative distances or counts
+* Incorrect coordinate alignment
+* Duplicate property identifiers
+* Unexpected zero distances
+* Inconsistent counts across distance ranges
+
+These checks help identify possible data-quality issues before modeling.
+
+## 24.4 Data leakage must be prevented
+
+Price-derived features can make a model appear more accurate than it really is.
+
+The project excludes the target variables and price-derived columns from the model inputs.
+
+The held-out test partition is also reserved for final evaluation.
+
+## 24.5 Error analysis is essential
+
+A strong overall R-squared value does not guarantee reliable predictions for every property.
+
+The prediction-error analysis revealed larger errors for high-priced properties.
+
+This shows why a model should be evaluated using several metrics and examined across different price ranges.
+
+## 24.6 Model reproducibility matters
+
+Saving the trained pipeline and confirming that it produces consistent predictions after reloading are important steps toward reliable deployment.
+
+The project also separates reusable feature-engineering functions from the notebook.
+
+These practices make the workflow easier to maintain and reproduce.
+
+---
+
+# 25. Final Outcomes of Module 4
+
+The feature-engineering module produced the following major outcomes.
+
+| Component                              | Outcome                                                       |
+| -------------------------------------- | ------------------------------------------------------------- |
+| Modeling dataset                       | 7,457 property records                                        |
+| Train/test split                       | 5,965 training records and 1,492 test records                 |
+| Target transformation                  | `log_price = log1p(price_lakhs)`                              |
+| Basic feature engineering              | Property-derived features created                             |
+| Geographical feature engineering       | Distances, counts, accessibility scores, and density features |
+| Accessibility classification           | `access_class` generated using fitted bin edges               |
+| Correlation analysis                   | Numerical relationships and redundancy investigated           |
+| Feature importance                     | Random Forest permutation importance performed                |
+| Feature ablation                       | Core and full accessibility feature groups compared           |
+| Additional feature validation          | `area_is_carpet` tested and excluded from the selected model  |
+| Final input configuration              | 15 core features                                              |
+| Candidate accessibility configuration  | 37 features                                                   |
+| Selected algorithm                     | Random Forest Regressor                                       |
+| Selected number of trees               | 400                                                           |
+| Test R-squared on log scale            | 0.912288                                                      |
+| Test MAE on log scale                  | 0.118397                                                      |
+| Test RMSE on log scale                 | 0.182717                                                      |
+| Test R-squared on original price scale | 0.902345                                                      |
+| Test MAE on original price scale       | ₹43.34 lakhs                                                  |
+| Test RMSE on original price scale      | ₹100.15 lakhs                                                 |
+| Saved model                            | `models/final_price_model.joblib`                             |
+| Model metadata                         | `models/final_model_metadata.json`                            |
+| Reusable feature functions             | Eight functions in `src/features.py`                          |
+| Model reload verification              | Passed for the tested inputs                                  |
+
+---
+
+## 26. Conclusion
+
+Module 4 transformed the cleaned Gurgaon real estate dataset into a machine-learning-ready representation and established a reproducible modeling workflow.
+
+The work included basic property feature engineering, geographical accessibility analysis, amenity-count creation, accessibility scoring, feature correlation analysis, permutation feature importance, feature-group ablation, candidate feature comparison, algorithm evaluation, Random Forest hyperparameter tuning, final model evaluation, and prediction-error analysis.
+
+Although the project developed a comprehensive set of 37 candidate input features, the selected final model uses 15 core features consisting of property characteristics, categorical attributes, and geographical coordinates.
+
+The final Random Forest pipeline achieved an R-squared value of approximately 0.9023 on the original property-price scale, with an MAE of approximately ₹43.34 lakhs and an RMSE of approximately ₹100.15 lakhs on the held-out test set.
+
+The model was saved and successfully reloaded, and its predictions were verified for numerical consistency. The eight feature-engineering functions were also organized into a reusable Python module.
+
+These results establish the foundation for the next stage: developing a Streamlit application that accepts property details and uses the saved model to estimate a property's price.
+
+The model remains an estimation tool rather than a substitute for professional property valuation. Its predictions are limited by the quality, coverage, and representativeness of the available dataset, especially for unusual and high-value properties.
+
 
