@@ -5674,3 +5674,1380 @@ These results establish the foundation for the next stage: developing a Streamli
 The model remains an estimation tool rather than a substitute for professional property valuation. Its predictions are limited by the quality, coverage, and representativeness of the available dataset, especially for unusual and high-value properties.
 
 
+# Module 6 —  Model Training
+
+## 1. Introduction
+
+The Model Training module is a major component of the Real Estate Price Prediction project. Its purpose is to develop, train, compare, optimize, and evaluate machine learning models that predict residential property prices in Gurgaon, India.
+
+The module uses the cleaned and feature-engineered dataset produced during the earlier stages of the project. It applies data preprocessing, regression algorithms, cross-validation, hyperparameter tuning, and performance evaluation to identify a suitable model for predicting property prices.
+
+Four regression algorithms are investigated:
+
+1. Linear Regression
+2. Decision Tree Regressor
+3. Random Forest Regressor
+4. Gradient Boosting Regressor
+
+The models are evaluated using statistical performance metrics, including the coefficient of determination (R²), Root Mean Squared Error (RMSE), and Mean Absolute Error (MAE).
+
+The selected model is saved together with its preprocessing pipeline so that the trained model can subsequently be integrated into the Streamlit application.
+
+The main objective is not simply to achieve a high training score, but to develop a model that generalizes well to previously unseen properties.
+
+---
+
+## 2. Objectives of the Module
+
+The primary objectives of the Model Training module are:
+
+* Load the processed property dataset and verify the training and testing partitions.
+* Identify numerical and categorical input features.
+* Build a reusable preprocessing pipeline.
+* Handle missing values systematically.
+* Convert categorical variables into a numerical representation suitable for machine learning.
+* Train multiple regression algorithms and compare their performance.
+* Establish a baseline using cross-validation.
+* Tune model hyperparameters to improve predictive performance.
+* Evaluate the tuned models using consistent validation procedures.
+* Select an appropriate final model.
+* Transform predicted prices back to their original scale.
+* Save the trained models, hyperparameters, evaluation results, and metadata.
+* Investigate whether additional features improve model performance.
+* Prepare the training workflow for reuse outside the Jupyter notebook.
+
+---
+
+## 3. Dataset Overview
+
+### 3.1 Source Dataset
+
+The module uses the processed dataset:
+
+`data/processed/model_data.csv`
+
+This dataset was generated during the earlier data-cleaning, exploratory data analysis, location-feature extraction, and feature-engineering stages.
+
+The processed dataset contains **7,457 property records and 19 columns**.
+
+### 3.2 Dataset Dimensions
+
+| Property                   | Value |
+| -------------------------- | ----: |
+| Total property records     | 7,457 |
+| Total columns              |    19 |
+| Training records           | 5,965 |
+| Testing records            | 1,492 |
+| Numerical input features   |     9 |
+| Categorical input features |     6 |
+| Total input features       |    15 |
+
+The dataset includes the input features, target variables, property identifier, and train/test split information.
+
+### 3.3 Important Columns
+
+| Column                 | Description                              |
+| ---------------------- | ---------------------------------------- |
+| `prop_id`              | Unique property identifier               |
+| `bedroom_num`          | Number of bedrooms                       |
+| `bathroom_num`         | Number of bathrooms                      |
+| `balcony_num`          | Number of balconies                      |
+| `floor_num`            | Floor number of the property             |
+| `total_floor`          | Total number of floors in the building   |
+| `total_landmark_count` | Aggregate count of nearby landmarks      |
+| `area_sqft`            | Property area in square feet             |
+| `latitude`             | Geographic latitude                      |
+| `longitude`            | Geographic longitude                     |
+| `property_type`        | Type of residential property             |
+| `owntype`              | Ownership category                       |
+| `furnish`              | Furnishing category                      |
+| `facing`               | Property-facing direction                |
+| `age`                  | Property age category                    |
+| `locality_grouped`     | Grouped locality information             |
+| `price_lakhs`          | Actual property price in lakhs           |
+| `log_price`            | Log-transformed property price           |
+| `split`                | Indicates training or testing membership |
+
+The property identifier and split column are not used as predictive features.
+
+---
+
+# Part A: Setup and Data Verification
+
+## 4. Purpose
+
+Part A establishes the foundation for the model-training workflow. Before training any model, it is necessary to verify the processed dataset, feature configuration, target variable, and train/test partition.
+
+This step ensures that the training process uses the expected data and that the evaluation results can be reproduced.
+
+## 4.1 Loading the Dataset
+
+The processed dataset is loaded into a Pandas DataFrame.
+
+```python
+import pandas as pd
+import numpy as np
+
+df = pd.read_csv("data/processed/model_data.csv")
+
+print("Dataset shape:", df.shape)
+print(df.head())
+```
+
+The expected dataset shape is:
+
+`(7457, 19)`
+
+The first few rows are inspected to confirm that the columns contain the expected values.
+
+## 4.2 Loading the Feature Configuration
+
+The numerical and categorical feature lists are maintained in:
+
+`models/feature_config.json`
+
+The configuration defines which columns are used as model inputs.
+
+The numerical features are:
+
+```python
+numeric_features = [
+    "bedroom_num",
+    "bathroom_num",
+    "balcony_num",
+    "floor_num",
+    "total_floor",
+    "total_landmark_count",
+    "area_sqft",
+    "latitude",
+    "longitude",
+]
+```
+
+The categorical features are:
+
+```python
+categorical_features = [
+    "property_type",
+    "owntype",
+    "furnish",
+    "facing",
+    "age",
+    "locality_grouped",
+]
+```
+
+Separating features by data type allows the preprocessing pipeline to apply the appropriate transformation to each group.
+
+## 4.3 Separating Training and Testing Data
+
+The dataset contains a `split` column that identifies whether each record belongs to the training or testing set.
+
+The data is separated using this column rather than generating a new random split during every training run.
+
+```python
+train_df = df[df["split"] == "train"].copy()
+test_df = df[df["split"] == "test"].copy()
+
+feature_columns = numeric_features + categorical_features
+
+X_train = train_df[feature_columns].copy()
+X_test = test_df[feature_columns].copy()
+
+y_train = train_df["log_price"].copy()
+y_test = test_df["log_price"].copy()
+```
+
+The resulting dimensions are:
+
+* `X_train`: 5,965 rows × 15 columns
+* `X_test`: 1,492 rows × 15 columns
+* `y_train`: 5,965 target values
+* `y_test`: 1,492 target values
+
+The training set is used to fit the models. The testing set is reserved for evaluating the final model on previously unseen observations.
+
+## 4.4 Avoiding Data Leakage
+
+Data leakage occurs when information that would not legitimately be available during prediction influences model training.
+
+The following precautions are important:
+
+* The actual price is excluded from the input feature matrix.
+* `log_price` is used as the target during log-target model training.
+* `price_lakhs` is not included as an input feature.
+* The property identifier is excluded from the model inputs.
+* The split column is used only to separate the data.
+* Imputation and scaling parameters are learned from the training data rather than the complete dataset.
+* The test set is not used to fit the preprocessing pipeline or tune the model.
+
+These practices help ensure that the reported performance is a meaningful estimate of how the model may perform on unseen properties.
+
+---
+
+# Part B: Build the Preprocessing Pipeline
+
+## 5. Purpose
+
+Machine learning algorithms generally require input data to be represented in a suitable numerical format.
+
+However, the real-estate dataset contains both numerical and categorical variables. Some values are missing, and categorical values cannot be passed directly to most regression algorithms.
+
+Part B creates a preprocessing pipeline to handle these requirements consistently.
+
+The pipeline uses:
+
+1. Numerical missing-value imputation.
+2. Numerical scaling.
+3. Categorical missing-value imputation.
+4. One-hot encoding of categorical variables.
+
+A `ColumnTransformer` combines these operations into a single preprocessing object.
+
+## 5.1 Numerical Feature Processing
+
+Numerical features include property size, number of rooms, floor information, and geographic coordinates.
+
+### Median Imputation
+
+Missing numerical values are replaced using the median calculated from the corresponding feature in the training data.
+
+The median is less sensitive to extreme values than the mean and provides a practical method for filling missing numerical observations.
+
+For example, missing `floor_num` values are imputed using the training-set median.
+
+Missing floor numbers are not automatically replaced with zero because zero could represent an actual numerical value rather than missing information.
+
+### Standardization
+
+Numerical features are standardized using `StandardScaler`.
+
+Standardization transforms a numerical variable approximately according to:
+
+$$
+z = \frac{x-\mu}{\sigma}
+$$
+
+where:
+
+* \(x\) is the original value.
+* \(\mu\) is the training-set mean.
+* \(\sigma\) is the training-set standard deviation.
+* \(z\) is the standardized value.
+
+Scaling can help models such as Linear Regression operate more effectively when features have very different numerical ranges.
+
+Although tree-based models generally do not require scaling, a shared preprocessing structure simplifies model comparison.
+
+## 5.2 Categorical Feature Processing
+
+Categorical features include property type, ownership type, furnishing status, facing direction, age category, and locality group.
+
+### Missing-Value Imputation
+
+Missing categorical values are replaced according to the imputation strategy configured in the pipeline.
+
+The workflow's preprocessing configuration should be treated as the source of truth for the exact imputation strategy used in each saved model.
+
+### One-Hot Encoding
+
+One-hot encoding converts categorical values into numerical indicator columns.
+
+For example, a property-type feature might contain:
+
+* Residential Apartment
+* Independent/Builder Floor
+* Independent House/Villa
+
+One-hot encoding represents these categories through separate binary columns rather than assigning them arbitrary numerical rankings.
+
+This prevents the model from interpreting category labels as inherently ordered numerical quantities.
+
+The encoder is configured to handle previously unseen categories without failing during prediction.
+
+## 5.3 Combining the Transformers
+
+A `ColumnTransformer` applies the numerical and categorical transformations to their respective columns.
+
+The overall structure is:
+
+```text
+Input Data
+    |
+    +-------------------------------+
+    |                               |
+    v                               v
+Numerical Features             Categorical Features
+    |                               |
+Median Imputation              Missing-Value Imputation
+    |                               |
+Standard Scaling               One-Hot Encoding
+    |                               |
+    +---------------+---------------+
+                    |
+                    v
+          Transformed Feature Matrix
+                    |
+                    v
+             Regression Model
+```
+
+The preprocessing pipeline is fitted on training data and then reused to transform testing data.
+
+This prevents the test set from influencing the learned imputation values, scaling parameters, or categorical encoding.
+
+---
+
+# Part C: Define the Regression Models
+
+## 6. Purpose
+
+Part C establishes multiple regression algorithms for comparison.
+
+Using different model families is important because each algorithm captures relationships between property characteristics and prices differently.
+
+Four regression models are investigated, together with a simple baseline model.
+
+## 6.1 Dummy Regressor
+
+The `DummyRegressor` provides a basic reference point for predictive performance.
+
+A median-strategy dummy regressor predicts a constant value based on the median target in the training data.
+
+It does not learn relationships between property features and prices.
+
+Its purpose is to answer a fundamental question:
+
+**Does the machine learning model perform better than a simple prediction based on the training-set median?**
+
+A sophisticated model should provide meaningful improvement over this baseline.
+
+## 6.2 Linear Regression
+
+Linear Regression models the relationship between the input variables and the target using a linear function.
+
+Its general form is:
+
+$$
+\hat{y} =
+\beta_0+\beta_1x_1+\beta_2x_2+\cdots+\beta_px_p
+$$
+
+where:
+
+* \(\hat{y}\) is the predicted target.
+* \(x_1,\ldots,x_p\) are the input features.
+* \(\beta_0\) is the intercept.
+* \(\beta_1,\ldots,\beta_p\) are the learned coefficients.
+
+### Advantages
+
+* Simple and computationally efficient.
+* Provides a useful baseline for regression.
+* Relatively easy to interpret.
+* Helps identify whether a linear relationship captures the data adequately.
+
+### Limitations
+
+* Cannot naturally represent complex nonlinear relationships without additional feature engineering.
+* May be affected by multicollinearity.
+* Can underfit complex real-estate pricing patterns.
+
+## 6.3 Decision Tree Regressor
+
+A Decision Tree Regressor divides the feature space into smaller regions using a sequence of decision rules.
+
+For example, a tree might learn that properties with larger areas and particular locality characteristics tend to have different predicted prices.
+
+### Advantages
+
+* Captures nonlinear relationships.
+* Can model interactions between features.
+* Does not require numerical feature scaling.
+* Can be visualized and interpreted when the tree is sufficiently small.
+
+### Limitations
+
+* Can overfit the training data.
+* Small changes in the training data can produce a different tree.
+* Deep trees may generalize poorly to unseen properties.
+
+Hyperparameters such as tree depth and minimum samples per split can help control model complexity.
+
+## 6.4 Random Forest Regressor
+
+Random Forest is an ensemble learning algorithm that trains multiple decision trees and combines their predictions.
+
+Each tree is trained using randomized sampling and feature selection. The final regression prediction is obtained by aggregating the predictions of the trees.
+
+For \(T\) trees:
+
+$$
+\hat{y} =
+\frac{1}{T}\sum_{t=1}^{T}\hat{y}_t
+$$
+
+where \(\hat{y}_t\) represents the prediction from the \(t\)-th tree.
+
+### Advantages
+
+* Captures nonlinear relationships.
+* Models interactions between property features.
+* Usually provides more stable predictions than a single decision tree.
+* Handles a mixture of numerical and encoded categorical features.
+* Can provide feature-importance estimates.
+
+### Limitations
+
+* More computationally expensive than simple linear models.
+* Less directly interpretable than a small decision tree.
+* Can still overfit, particularly when the trees are excessively complex.
+
+Random Forest becomes an important candidate in this project because property prices can depend on nonlinear combinations of area, locality, property type, and accessibility.
+
+## 6.5 Gradient Boosting Regressor
+
+Gradient Boosting constructs an ensemble of decision trees sequentially.
+
+Each successive tree attempts to improve the predictions produced by the existing ensemble by learning from its remaining errors.
+
+### Advantages
+
+* Captures nonlinear relationships.
+* Can provide high predictive accuracy.
+* Learns complex feature interactions.
+* Often performs well on structured tabular datasets.
+
+### Limitations
+
+* Requires careful hyperparameter selection.
+* Can overfit if the number or complexity of trees is excessive.
+* Sequential training can be slower than training independent trees.
+
+Important parameters include the learning rate, number of boosting stages, tree depth, and minimum samples required for a split.
+
+## 6.6 Unified Pipeline Structure
+
+Each regression algorithm is integrated with the preprocessing pipeline.
+
+The resulting structure is:
+
+```text
+Raw Model Inputs
+       |
+       v
+Preprocessing Pipeline
+       |
+       v
+Regression Algorithm
+       |
+       v
+Predicted Log Price
+```
+
+This ensures that every model receives appropriately processed inputs.
+
+---
+
+# Part D: Baseline Model Evaluation Using Cross-Validation
+
+## 7. Purpose
+
+Part D establishes a reliable baseline for comparing the regression algorithms.
+
+Evaluating a model on a single train/test split can produce results that depend on the particular observations assigned to each set.
+
+Cross-validation reduces dependence on one validation partition by evaluating the model across multiple folds.
+
+## 7.1 Five-Fold Cross-Validation
+
+The workflow uses five-fold cross-validation with shuffled folds and a fixed random seed.
+
+The configuration is:
+
+```python
+from sklearn.model_selection import KFold
+
+cv = KFold(
+    n_splits=5,
+    shuffle=True,
+    random_state=42,
+)
+```
+
+The training data is divided into five folds.
+
+For each iteration:
+
+1. Four folds are used to train the model.
+2. The remaining fold is used for validation.
+3. The validation score is recorded.
+4. The process is repeated until every fold has served as the validation fold.
+
+The five scores are summarized to estimate how consistently the model performs across different subsets of the training data.
+
+The test set remains separate from this cross-validation process.
+
+## 7.2 Evaluation Metrics
+
+### Coefficient of Determination — R²
+
+R² measures how well a model explains variation in the target.
+
+$$
+R^2 =
+1-\frac{\sum_{i=1}^{n}(y_i-\hat{y}_i)^2}
+{\sum_{i=1}^{n}(y_i-\bar{y})^2}
+$$
+
+where:
+
+* \(y_i\) is the actual target.
+* \(\hat{y}_i\) is the predicted target.
+* \(\bar{y}\) is the mean actual target.
+* \(n\) is the number of observations.
+
+A higher R² generally indicates better predictive performance.
+
+An R² of 1 represents perfect predictions. An R² of 0 corresponds to the performance of predicting the mean target on the same evaluation observations. R² can also be negative when predictions are worse than this reference.
+
+### Root Mean Squared Error — RMSE
+
+RMSE measures the square root of the average squared prediction error.
+
+$$
+RMSE =
+\sqrt{\frac{1}{n}\sum_{i=1}^{n}(y_i-\hat{y}_i)^2}
+$$
+
+Squaring errors gives greater weight to large prediction mistakes.
+
+### Mean Absolute Error — MAE
+
+MAE measures the average absolute difference between predicted and actual values.
+
+$$
+MAE =
+\frac{1}{n}\sum_{i=1}^{n}|y_i-\hat{y}_i|
+$$
+
+MAE is easier to interpret because it represents the average absolute prediction error in the same units as the target.
+
+### Important Note About the Target Scale
+
+The baseline cross-validation experiments use `log_price`.
+
+Consequently, RMSE and MAE calculated directly from the log-transformed target are expressed in log-price units, not in lakhs.
+
+They must not be interpreted as direct currency errors.
+
+## 7.3 Why Cross-Validation Is Necessary
+
+Cross-validation helps to:
+
+* Compare models under consistent validation conditions.
+* Identify models that perform well across multiple folds.
+* Detect unstable performance.
+* Reduce reliance on a single validation subset.
+* Support model selection before final testing.
+
+The mean cross-validation score is considered alongside its variability rather than relying only on the best individual fold.
+
+---
+
+# Part E: Hyperparameter Tuning
+
+## 8. Purpose
+
+The initial models use baseline or default parameter settings. However, model performance depends on how each algorithm is configured.
+
+Hyperparameter tuning searches for parameter combinations that improve predictive performance.
+
+The objective is to identify a configuration that generalizes well rather than simply maximizing training accuracy.
+
+## 8.1 What Are Hyperparameters?
+
+Hyperparameters are settings chosen before a model is fitted.
+
+Unlike learned model coefficients, they are not directly estimated from the training examples by the ordinary fitting procedure.
+
+Examples include:
+
+| Model             | Important Hyperparameters                                                              |
+| ----------------- | -------------------------------------------------------------------------------------- |
+| Linear Regression | Model regularization settings when using Ridge or other regularized variants           |
+| Decision Tree     | Maximum depth, minimum samples per split, minimum samples per leaf                     |
+| Random Forest     | Number of trees, maximum features, minimum samples per split, minimum samples per leaf |
+| Gradient Boosting | Number of boosting stages, learning rate, maximum depth, minimum samples per split     |
+
+Different hyperparameter values can affect model complexity, training time, and generalization performance.
+
+## 8.2 Search Strategy
+
+The tuning workflow uses cross-validation to evaluate candidate parameter configurations.
+
+The process is:
+
+1. Define a set or distribution of candidate hyperparameters.
+2. Select an appropriate cross-validation strategy.
+3. Fit each candidate configuration on the training folds.
+4. Evaluate its predictions on the corresponding validation folds.
+5. Aggregate the scores.
+6. Identify the best configuration according to the selected scoring metric.
+7. Retain the selected parameters for subsequent evaluation.
+
+The best parameter configuration is recorded so that the experiment can be inspected and reproduced.
+
+## 8.3 Hyperparameter Tuning Results
+
+The recorded tuning summary contains the following RMSE values:
+
+| Model             | Cross-Validation RMSE |
+| ----------------- | --------------------: |
+| Gradient Boosting |              0.172807 |
+| Random Forest     |              0.180321 |
+| Ridge Regression  |              0.235837 |
+| Decision Tree     |              0.237505 |
+
+These values are in log-price units.
+
+**Gradient Boosting achieved the lowest RMSE in this recorded tuning summary**, followed by Random Forest.
+
+The Ridge result belongs to the regularized linear-model experiment. It should not automatically be treated as the final score of the separately evaluated Linear Regression pipeline.
+
+These results show why several algorithms should be investigated instead of assuming that one model family will perform best.
+
+The tuned parameters are stored in a JSON artifact for later reference.
+
+---
+
+# Part F: Compare the Tuned Models
+
+## 9. Purpose
+
+Part F compares the tuned models under a consistent five-fold cross-validation procedure.
+
+The aim is to determine whether hyperparameter tuning improves performance and whether the models generalize consistently.
+
+The comparison considers:
+
+* Cross-validation R².
+* Cross-validation RMSE.
+* Cross-validation MAE.
+* Variation in performance across folds.
+* Training performance.
+* The gap between training and validation scores.
+
+## 9.1 Cross-Validation Configuration
+
+The same five-fold cross-validation configuration is used:
+
+```python
+KFold(
+    n_splits=5,
+    shuffle=True,
+    random_state=42,
+)
+```
+
+Using the same validation configuration makes the comparison more meaningful because the models are evaluated using consistent fold assignments.
+
+## 9.2 Recorded Tuned-Model Results
+
+The recorded results for the tuned models are:
+
+| Model             | Mean CV R² | CV R² Standard Deviation | Training R² | CV RMSE (log-price) | CV MAE (log-price) | Overfit Gap |
+| ----------------- | ---------: | -----------------------: | ----------: | ------------------: | -----------------: | ----------: |
+| Random Forest     |     0.9106 |                   0.0086 |      0.9815 |              0.1828 |             0.1224 |      0.0709 |
+| Gradient Boosting |     0.9072 |                   0.0103 |      0.9385 |              0.1862 |             0.1327 |      0.0314 |
+| Linear Regression |     0.8531 |                   0.0103 |      0.8615 |              0.2345 |             0.1723 |      0.0084 |
+| Decision Tree     |     0.8493 |                   0.0148 |      0.9511 |              0.2374 |             0.1568 |      0.1018 |
+
+These are the recorded results from the tuned-model comparison. Minor differences may occur if the experiment is rerun with different preprocessing, parameter configurations, or library versions.
+
+### Interpretation
+
+**Random Forest**
+
+Random Forest achieved the highest recorded mean cross-validation R² among these four tuned models. Its relatively small cross-validation R² standard deviation indicates consistent performance across the five folds.
+
+However, its training R² is substantially higher than its validation R². This suggests some overfitting.
+
+**Gradient Boosting**
+
+Gradient Boosting achieved slightly lower mean cross-validation R² than Random Forest but a smaller training-to-validation R² gap.
+
+This suggests that Gradient Boosting offers a useful balance between predictive performance and generalization.
+
+**Linear Regression**
+
+Linear Regression showed a relatively small training-to-validation gap, but its validation performance was lower than that of the two ensemble models.
+
+This suggests that a purely linear model does not capture all the patterns present in the property dataset.
+
+**Decision Tree**
+
+The Decision Tree achieved high training R² but substantially lower cross-validation R².
+
+This is consistent with a single tree learning patterns specific to the training data that do not generalize as effectively to unseen observations.
+
+## 9.3 Understanding the Overfit Gap
+
+The overfit gap is calculated as:
+
+$$
+\text{Overfit Gap}
+=
+R^2_{\text{training}}
+-
+R^2_{\text{cross-validation}}
+$$
+
+A larger gap can indicate that the model fits the training data much better than it performs on validation data.
+
+A smaller gap is generally desirable, but it must be considered together with the overall validation score.
+
+For example, a model with a very small gap can still perform poorly if it underfits the data.
+
+## 9.4 Visualizing Model Comparison
+
+The notebook generates a model-comparison figure:
+
+`reports/figures/11_cv_model_comparison_v2.png`
+
+This visualization helps compare the performance of the models and makes the differences easier to communicate.
+
+The comparison outputs are also saved in tabular form for reporting and further analysis.
+
+---
+
+# Part G: Fit the Final Models and Transform Predictions
+
+## 10. Purpose
+
+Part G fits the selected tuned configurations on the complete training partition and prepares the resulting models for final evaluation and deployment.
+
+The final models use the selected hyperparameters rather than continuing to search for parameters during prediction.
+
+## 10.1 Final Model Fitting
+
+The selected configurations of the four regression algorithms are fitted using the training data.
+
+The training set contains 5,965 observations.
+
+The test set contains 1,492 observations and remains reserved for final evaluation.
+
+The models include:
+
+* Linear Regression.
+* Decision Tree Regressor.
+* Random Forest Regressor.
+* Gradient Boosting Regressor.
+
+Each model includes its preprocessing pipeline so that new property inputs can be transformed in the same way as the training data.
+
+## 10.2 Why the Target Is Log-Transformed
+
+Real-estate prices can be highly skewed. A relatively small number of expensive properties can have prices substantially higher than those of most properties.
+
+The target transformation is:
+
+$$
+y_{\text{log}} = \log(1+y)
+$$
+
+In the project, this transformation is implemented using `numpy.log1p()`.
+
+The logarithmic transformation can reduce the influence of extreme target values and allow models to learn price relationships on a compressed scale.
+
+It does not eliminate every effect of outliers, but it can make the target distribution easier to model.
+
+## 10.3 Converting Predictions Back to Lakhs
+
+Predictions made on the log-transformed target must be converted back to the original price scale.
+
+The inverse transformation is:
+
+$$
+\hat{y} = e^{\hat{y}_{\text{log}}}-1
+$$
+
+In Python:
+
+```python
+predictions_lakhs = np.expm1(predictions_log)
+```
+
+This conversion is necessary before calculating evaluation metrics in lakhs.
+
+For example, a predicted log-price of approximately 5.70 corresponds to a price of:
+
+$$
+e^{5.70}-1
+$$
+
+which is approximately 298.87 lakhs.
+
+### Using TransformedTargetRegressor
+
+The final-model workflow uses `TransformedTargetRegressor` to automate target transformation.
+
+Conceptually, the structure is:
+
+```text
+Input Features
+      |
+      v
+Preprocessing Pipeline
+      |
+      v
+Regression Algorithm
+      |
+      v
+Predicted Log Price
+      |
+      v
+Inverse Target Transformation
+      |
+      v
+Predicted Price in Lakhs
+```
+
+When a fitted `TransformedTargetRegressor` is used, its `predict()` method automatically applies the inverse transformation.
+
+Therefore:
+
+* A plain pipeline trained directly on `log_price` returns log-price predictions, which require `np.expm1()`.
+* A correctly fitted `TransformedTargetRegressor` trained on actual prices with `func=np.log1p` returns predictions in the original price scale automatically.
+
+Applying `np.expm1()` a second time to predictions that are already in lakhs would produce incorrect results.
+
+## 10.4 Saving the Final Model Artifacts
+
+The workflow saves the final model objects for reuse.
+
+The project contains final-model artifacts following the naming convention:
+
+```text
+models/
+├── linear_regression_final.joblib
+├── decision_tree_final.joblib
+├── random_forest_final.joblib
+└── gradient_boosting_final.joblib
+```
+
+The workflow also maintains tuned model artifacts, such as:
+
+```text
+models/
+├── linear_regression_tuned.joblib
+├── decision_tree_tuned.joblib
+├── random_forest_tuned.joblib
+└── gradient_boosting_tuned.joblib
+```
+
+These files should not be assumed to be interchangeable.
+
+A tuned artifact may be a plain preprocessing-and-regression pipeline that predicts log-price values, whereas a final artifact may wrap the pipeline in a `TransformedTargetRegressor`.
+
+The correct prediction scale therefore depends on the exact saved object.
+
+---
+
+# Part H: Save Everything and Verify the Artifacts
+
+## 11. Purpose
+
+Part H organizes the outputs of the model-training workflow so that the experiments can be inspected, reproduced, and used in later project stages.
+
+Saving the trained model alone is not sufficient for a well-documented machine learning workflow. It is also useful to retain the parameters, evaluation results, and metadata that explain how the model was produced.
+
+## 11.1 Model Artifacts
+
+The workflow saves the final trained models.
+
+The saved models contain the fitted preprocessing operations and regression estimators required for prediction.
+
+This avoids rebuilding the preprocessing logic separately when the model is loaded for inference.
+
+## 11.2 Hyperparameter Configuration
+
+The selected hyperparameters are saved in JSON format.
+
+The notebook uses a best-parameter artifact, with names such as:
+
+```text
+models/best_model_params.json
+```
+
+or a versioned equivalent:
+
+```text
+models/best_model_params_v2.json
+```
+
+The exact filename depends on the version of the experiment.
+
+This artifact helps document the settings used to obtain the tuned results.
+
+## 11.3 Model Metadata
+
+The workflow records metadata describing the trained models and their configuration.
+
+The metadata artifact may include:
+
+* Scikit-learn version.
+* Numerical feature names.
+* Categorical feature names.
+* Target transformation.
+* Number of training records.
+* Model configuration.
+
+The notebook uses a metadata file following the naming convention:
+
+`models/model_meta.json`
+
+Recording metadata helps identify differences between model versions and supports reproducibility.
+
+## 11.4 Cross-Validation Results
+
+The notebook saves cross-validation results as CSV files.
+
+The recorded artifact names include:
+
+```text
+reports/cv_comparison.csv
+reports/cv_baseline.csv
+```
+
+Versioned experiments may use filenames such as:
+
+```text
+reports/baseline_cv_results_v2.csv
+```
+
+These files preserve the results of the baseline and tuned-model comparisons.
+
+They can be loaded into Pandas for further analysis, reporting, or visualization.
+
+## 11.5 Model Reload Verification
+
+After saving a model, it is important to verify that the saved artifact can be loaded successfully.
+
+Example:
+
+```python
+import joblib
+
+model = joblib.load(
+    "models/random_forest_final.joblib"
+)
+```
+
+The loaded model should accept the expected input columns and produce predictions without requiring the original notebook's in-memory variables.
+
+A small prediction test is useful for detecting serialization or input-schema problems before deployment.
+
+## 11.6 Why Saving Artifacts Matters
+
+The saved artifacts support:
+
+* Reproducibility.
+* Model comparison.
+* Experiment tracking.
+* Debugging.
+* Version management.
+* Integration with the Streamlit application.
+* Separation of model training from model inference.
+
+The final application should load an appropriate saved model instead of retraining the model whenever a user requests a property-price prediction.
+
+---
+
+# 12. Final Test-Set Evaluation
+
+After the model-selection and training workflow, the candidate models are evaluated using the held-out test set.
+
+The test set contains 1,492 properties that are separate from the training set.
+
+The selected model is evaluated using the original price scale so that the prediction errors can be interpreted in lakhs.
+
+## 12.1 Evaluation Metrics
+
+The final evaluation reports three principal metrics.
+
+| Metric | Purpose                                                           | Preferred Direction |
+| ------ | ----------------------------------------------------------------- | ------------------- |
+| R²     | Measures how well the model explains variation in property prices | Higher              |
+| MAE    | Measures average absolute prediction error                        | Lower               |
+| RMSE   | Penalizes large prediction errors more heavily                    | Lower               |
+
+MAE and RMSE are reported in lakhs because the actual target is `price_lakhs`.
+
+## 12.2 Final Model Comparison
+
+The recorded test-set results for the tuned pipelines are:
+
+| Model             |         R² | MAE (lakhs) | RMSE (lakhs) |
+| ----------------- | ---------: | ----------: | -----------: |
+| Random Forest     | **0.9010** | **43.3703** | **100.8134** |
+| Gradient Boosting |     0.8949 |     49.7949 |     103.8771 |
+| Decision Tree     |     0.8727 |     56.0719 |     114.3299 |
+| Linear Regression |     0.7882 |     67.8057 |     147.4914 |
+
+These values were calculated after converting the plain pipelines' log-price predictions back to the original price scale using `np.expm1()`.
+
+The table describes the recorded test evaluation of the tuned pipeline artifacts. A model retrained using a different wrapper, preprocessing configuration, or hyperparameter set may produce slightly different results.
+
+### Interpretation
+
+**Random Forest achieved the strongest recorded test-set performance.**
+
+It produced:
+
+* R² of 0.9010.
+* MAE of approximately ₹43.37 lakhs.
+* RMSE of approximately ₹100.81 lakhs.
+
+An R² of 0.9010 indicates that the model explains approximately 90.1% of the observed variation in the test-set target, under the evaluation setup used.
+
+The MAE indicates that the mean absolute difference between predicted and actual property prices is approximately ₹43.37 lakhs.
+
+The RMSE is higher than the MAE because it gives greater weight to large errors. This indicates that some predictions have considerably larger errors than the typical absolute error.
+
+The model performs better than the other three candidates on all three metrics in this recorded comparison.
+
+However, an R² of 0.9010 does not mean that every property prediction is 90.1% accurate. R² measures explained variation rather than the percentage accuracy of individual predictions.
+
+---
+
+# 13. Additional Experiment: Missing Floor Number Indicator
+
+After comparing the four main models, an additional experiment was performed to investigate whether missing floor-number information could be represented more effectively.
+
+## 13.1 Motivation
+
+The `floor_num` feature contains missing values for some properties.
+
+An examination of the dataset showed:
+
+| Property Type             | Missing Floor Numbers | Total Properties |
+| ------------------------- | --------------------: | ---------------: |
+| Independent House/Villa   |                   433 |              433 |
+| Independent/Builder Floor |                   194 |            2,274 |
+| Residential Apartment     |                   127 |            4,750 |
+| **Total**                 |               **754** |        **7,457** |
+
+All 433 Independent House/Villa records had missing floor numbers in this dataset.
+
+This suggested that missingness might contain information about property type or the way floor information is recorded.
+
+## 13.2 Feature Creation
+
+A binary feature named `floor_num_missing` was introduced.
+
+Its values are:
+
+* `1`: The property's floor number is missing.
+* `0`: The property's floor number is available.
+
+The feature was created before the preprocessing pipeline imputed missing floor values.
+
+The training-set and test-set distributions were:
+
+| Dataset  | Indicator = 0 | Indicator = 1 |
+| -------- | ------------: | ------------: |
+| Training |         5,363 |           602 |
+| Testing  |         1,340 |           152 |
+
+The original `floor_num` feature remained in the model, and the indicator was added as an extra numerical feature.
+
+## 13.3 Experimental Setup
+
+A new Random Forest was trained using the additional indicator.
+
+The original and indicator models used:
+
+* The same training and testing partitions.
+* The same target transformation.
+* The same Random Forest hyperparameters.
+* The same evaluation metrics.
+
+The purpose was to isolate the effect of adding the missing-value indicator.
+
+## 13.4 Results
+
+| Model                          |         R² | MAE (lakhs) | RMSE (lakhs) |
+| ------------------------------ | ---------: | ----------: | -----------: |
+| Random Forest — Original       | **0.9010** | **43.3703** | **100.8134** |
+| Random Forest — With Indicator |     0.9009 |     43.4309 |     100.8636 |
+
+The indicator model performed marginally worse across all three metrics.
+
+The differences are small, but the additional feature did not demonstrate a predictive improvement on this test set.
+
+One possible explanation is that the existing `property_type` feature already captures some of the information associated with missing floor numbers. This is a plausible explanation rather than a proven cause.
+
+### Conclusion
+
+The original feature set was retained.
+
+The `floor_num_missing` feature was not included in the selected model because it did not improve the recorded test-set results.
+
+This experiment demonstrates the importance of validating feature-engineering decisions empirically instead of assuming that adding more features always improves performance.
+
+---
+
+# 14. Model Training Pipeline Summary
+
+The complete workflow can be summarized as follows:
+
+```text
+Processed Property Dataset
+          |
+          v
+Load Feature Configuration
+          |
+          v
+Verify Data and Train/Test Split
+          |
+          v
+Separate Input Features and Target
+          |
+          v
+Build Preprocessing Pipeline
+          |
+          +--------------------------+
+          |                          |
+          v                          v
+Numerical Features              Categorical Features
+          |                          |
+          v                          v
+Median Imputation              Missing-Value Imputation
+          |                          |
+          v                          v
+Standard Scaling               One-Hot Encoding
+          |                          |
+          +------------+-------------+
+                       |
+                       v
+               Model Training
+                       |
+          +------------+-------------+
+          |            |             |
+          v            v             v
+       Linear       Decision       Random
+     Regression       Tree         Forest
+          |
+          +---------------- Gradient Boosting
+                       |
+                       v
+             Cross-Validation
+                       |
+                       v
+             Hyperparameter Tuning
+                       |
+                       v
+             Tuned Model Comparison
+                       |
+                       v
+              Final Model Selection
+                       |
+                       v
+             Final Model Evaluation
+                       |
+                       v
+             Save Model and Metadata
+                       |
+                       v
+               Deployment Preparation
+```
+
+---
+
+# 15. Project Directory Structure
+
+The model-training workflow uses the following project organization:
+
+```text
+real-estate-price-prediction/
+│
+├── data/
+│   └── processed/
+│       └── model_data.csv
+│
+├── notebooks/
+│   └── 06_model_training.ipynb
+│
+├── src/
+│   └── train.py
+│
+├── models/
+│   ├── feature_config.json
+│   ├── best_model_params.json
+│   ├── model_meta.json
+│   ├── linear_regression_final.joblib
+│   ├── decision_tree_final.joblib
+│   ├── random_forest_final.joblib
+│   └── gradient_boosting_final.joblib
+│
+└── reports/
+    ├── cv_comparison.csv
+    ├── cv_baseline.csv
+    └── figures/
+        └── 11_cv_model_comparison_v2.png
+```
+
+This is a representative structure of the module's files. Versioned parameter files, alternate model artifacts, and additional reports may also exist in the project.
+
+The notebook contains the experimental workflow, while the Python script is intended to make the selected training procedure reusable outside the notebook.
+
+---
+
+# 16. Reproducibility and Best Practices
+
+Several practices were followed throughout the model-training process.
+
+### Fixed Random Seeds
+
+A fixed random seed, such as `random_state=42`, is used in relevant operations to improve reproducibility.
+
+### Consistent Data Splitting
+
+The existing `split` column preserves the designated training and testing partitions.
+
+### Pipeline-Based Preprocessing
+
+Imputation, scaling, encoding, and regression are organized into pipelines to keep transformations consistent between training and prediction.
+
+### Cross-Validation
+
+Five-fold cross-validation provides a more robust comparison than relying solely on a single validation score.
+
+### Hyperparameter Tracking
+
+Selected hyperparameters are recorded in JSON artifacts for reference and reproducibility.
+
+### Held-Out Test Evaluation
+
+The test set is reserved for evaluating the selected model rather than being used to fit the preprocessing pipeline or search for hyperparameters.
+
+### Correct Target Transformation
+
+Log-price predictions are converted back to the original price scale before reporting errors in lakhs.
+
+### Model Serialization
+
+Trained models are saved so they can be loaded without rerunning the complete training notebook.
+
+### Feature Validation
+
+The missing-floor-indicator experiment demonstrates that additional features should be retained only when they provide a useful improvement.
+
+---
+
+# 17. Running the Model Training Workflow
+
+The notebook can be opened using Jupyter Notebook or JupyterLab.
+
+From the project root, the training script can be executed using:
+
+```bash
+python src/train.py
+```
+
+The script is intended to:
+
+1. Load the processed dataset.
+2. Load the feature configuration.
+3. Build the preprocessing pipeline.
+4. Build the selected regression model.
+5. Fit the model on the training data.
+6. Evaluate predictions on the held-out test set.
+7. Save the fitted model.
+8. Verify that the saved model can be loaded.
+
+The script and notebook should use compatible preprocessing definitions and target transformations.
+
+If the notebook and script are maintained separately, changes to feature lists, preprocessing settings, or model hyperparameters should be reflected in the reusable training implementation.
+
+---
+
+# 18. Limitations
+
+Although the selected model demonstrates strong performance on the available test set, several limitations remain.
+
+### Data Coverage
+
+The model is trained on the properties represented in the processed Gurgaon dataset. Its performance may differ for properties in other cities, localities, or market conditions.
+
+### Data Quality
+
+Missing values, incorrect property details, inconsistent listing information, and duplicated geographic coordinates can affect the learned relationships.
+
+### Price Variation
+
+Property prices can depend on factors that are not fully captured by the available dataset, including negotiation, building quality, legal status, amenities, and short-term market conditions.
+
+### Large Prediction Errors
+
+The RMSE is considerably higher than the MAE. This indicates that some predictions have substantially larger errors than the average absolute error.
+
+Residual analysis is therefore important for identifying properties where the model performs poorly.
+
+### Temporal Changes
+
+Real-estate prices change over time. A model trained on historical listings may require periodic retraining to remain relevant to current market conditions.
+
+### Interpretability
+
+Random Forest can capture complex relationships but does not provide the same direct interpretability as a simple linear model. Feature importance and error analysis can help explain its behavior, although they do not establish causality.
+
+### Generalization
+
+The reported scores apply to the particular dataset and test partition used. Performance should be re-evaluated if the dataset, preprocessing pipeline, or feature configuration changes.
+
+---
+
+# 19. Conclusion
+
+The Model Training module establishes a complete experimental workflow for predicting residential property prices in Gurgaon.
+
+The module verifies the processed dataset, builds preprocessing pipelines, trains multiple regression algorithms, applies five-fold cross-validation, tunes hyperparameters, compares model performance, and saves trained artifacts for reuse.
+
+The recorded test-set comparison identified Random Forest as the strongest of the four evaluated regression pipelines, with:
+
+* **R²:** 0.9010
+* **MAE:** ₹43.3703 lakhs
+* **RMSE:** ₹100.8134 lakhs
+
+Gradient Boosting also performed strongly, while Decision Tree and Linear Regression produced larger test-set errors in the recorded comparison.
+
+An additional experiment investigated whether a binary indicator for missing floor numbers could improve Random Forest performance. The indicator did not improve the recorded metrics, so the original feature set was retained.
+
+The resulting workflow provides a foundation for deploying the selected model in a Streamlit application. By saving the preprocessing pipeline together with the trained estimator, the project can apply the same transformations to new property inputs without repeating the training process.
+
+Overall, the module demonstrates a systematic approach to machine learning model development, evaluation, selection, and preparation for deployment.
+
+---
+
+## 20. Key Files and Artifacts
+
+| File                                            | Purpose                                                     |
+| ----------------------------------------------- | ----------------------------------------------------------- |
+| `data/processed/model_data.csv`                 | Processed dataset used for training                         |
+| `models/feature_config.json`                    | Numerical and categorical feature definitions               |
+| `notebooks/06_model_training.ipynb`             | Experimental model-training workflow                        |
+| `models/best_model_params.json`                 | Recorded tuned hyperparameters, subject to the version used |
+| `models/model_meta.json`                        | Model configuration and metadata                            |
+| `models/*_tuned.joblib`                         | Tuned model pipeline artifacts                              |
+| `models/*_final.joblib`                         | Final model artifacts                                       |
+| `reports/cv_baseline.csv`                       | Baseline cross-validation results                           |
+| `reports/cv_comparison.csv`                     | Model comparison results                                    |
+| `reports/figures/11_cv_model_comparison_v2.png` | Cross-validation comparison visualization                   |
+| `src/train.py`                                  | Reusable training script                                    |
+
+**Note:** The exact contents and filenames should be checked against the files currently present in the repository, because the project contains multiple experiment versions and both tuned and final model artifacts.
+
+
+
